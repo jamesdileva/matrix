@@ -134,6 +134,7 @@ Godot connection/rendering (S06B), CI.
 - `1c385f0` — Initial commit: baseline docs + worklog (D001) [pushed]
 - `9f46712` — S01: repository baseline — backend, web console, Godot client skeleton [pushed]
 - `951c82a` — S01 addendum: Godot headless check passes; add tools/godot.cmd locator [pushed]
+- `090b18e` — S02: database & persistence — SQLAlchemy models, Alembic migrations, isolated-db tests [pushed]
 
 ## S02 — Database & Persistence (2026-09-28)
 
@@ -197,4 +198,4 @@ database, test-directory taxonomy (flat `tests/` until the suite grows).
 - Roadmap S02 checklist: fully green.
 
 ### Commits
-- (this commit) — S02: database & persistence — SQLAlchemy models, Alembic migrations, isolated-db tests
+- `090b18e` — S02: database & persistence — SQLAlchemy models, Alembic migrations, isolated-db tests [pushed]
