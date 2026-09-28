@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S03 — Deterministic World Engine (the first Void)
-- Completed sprints: S01, S02 (2026-09-28)
+- **Next sprint:** S04 — Actions & Rules
+- Completed sprints: S01, S02, S03 (2026-09-28)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -199,3 +199,60 @@ database, test-directory taxonomy (flat `tests/` until the suite grows).
 
 ### Commits
 - `090b18e` — S02: database & persistence — SQLAlchemy models, Alembic migrations, isolated-db tests [pushed]
+
+## S03 — Deterministic World Engine (2026-09-28)
+
+### Plan
+Create the first Void: a pure, in-memory, deterministic grid world. Same
+seed produces the same world; a tick counter advances; terrain comes in
+floor/wall/water with seeded generation; basic objects sit on cells under
+strict position validation; the full state serializes and restores exactly.
+The engine owns truth and stays free of DB/API concerns — persistence of
+live worlds arrives with the API/experiment layers, keeping the engine
+pure and trivially testable.
+
+### Scope
+In: `app/simulation` package — `Position`, `Terrain`, `WorldObject`,
+`World` — with a seeded generator (border walls, interior scatter),
+`place_object` validation, tick stepping, `to_dict`/`from_dict` round
+trip, an ASCII `render` for debugging, and a `python -m app.simulation`
+demo CLI. Full tests for every roadmap checklist item.
+Out: actions/movement (S04), event bus (S05), agents (S06), database
+integration for live worlds (comes with the API/experiment layers),
+physics beyond one-object-per-cell occupancy.
+
+### Implementation
+- `backend/app/simulation/` — pure engine, no DB/API imports:
+  - `world.py`: `Position` (frozen, hashable), `Terrain` (floor/wall/water
+    with display chars), `WorldObject` (id, type, position, created_tick,
+    properties, created_by_agent_id), `World` (grid, tick, seeded
+    `generate()`, validated `place_object()`, `step()`, `to_dict`/
+    `from_dict`, ASCII `render()`).
+  - `errors.py`: `SimulationError` → `InvalidPositionError` /
+    `CellOccupiedError`. The world rejects; it never half-applies.
+  - `__main__.py`: demo CLI — `python -m app.simulation --seed matrix`.
+- Generator: border ring of walls (containment, natural fit for escape
+  scenarios later), interior scatter of water/wall/floor via
+  `random.Random(seed)`, then row-major object scatter (trees/stones/food).
+- Determinism discipline documented in the module: string seeds hash via
+  sha512 (stable), all order-sensitive iteration is row-major or sorted —
+  nothing depends on set/dict ordering.
+- `quick-reference.md`: new "World engine" section.
+
+### Verification
+- Tests: pytest **25 passed** (11 prior + 14 world-engine).
+- Same seed creates same world: `to_dict()` equality test, plus demo runs
+  of `--seed matrix` producing byte-identical md5 output across runs;
+  different seed differs ✅.
+- Tick advances correctly: 0 → step() → 1 → 2 ✅.
+- Objects have valid positions: every generated object is in-bounds floor,
+  `object_at()` resolves, ids unique and sequential ✅.
+- Invalid positions rejected: out-of-bounds, wall/water terrain, occupied
+  cell, non-integer and bool coordinates all raise ✅.
+- World state serializes: full `to_dict`/`from_dict` round-trip equality
+  (including tick, custom properties, agent attribution), JSON-safe, and
+  restored worlds continue the object-id sequence ✅.
+- Roadmap S03 checklist: fully green.
+
+### Commits
+- (this commit) — S03: deterministic world engine — seeded grid, terrain, objects, tick, serialization

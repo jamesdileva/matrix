@@ -40,6 +40,17 @@ tools/godot.cmd --headless --path world-client --quit   # headless load check (C
 # `godot --path world-client` is identical.
 ```
 
+## World engine (S03+)
+
+```bash
+cd backend
+.venv/Scripts/python -m app.simulation --seed matrix --width 32 --height 32  # print the Void
+.venv/Scripts/python -m pytest tests/test_simulation_world.py -q             # engine tests
+```
+
+The engine (`app/simulation/`) is pure Python — no DB, no API. Same seed
+always produces the same world.
+
 ## Database (S02+)
 
 ```bash
