@@ -255,4 +255,4 @@ physics beyond one-object-per-cell occupancy.
 - Roadmap S03 checklist: fully green.
 
 ### Commits
-- (this commit) — S03: deterministic world engine — seeded grid, terrain, objects, tick, serialization
+- `b9672c4` — S03: deterministic world engine — seeded grid, terrain, objects, tick, serialization [pushed]
