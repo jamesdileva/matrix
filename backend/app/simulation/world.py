@@ -19,10 +19,12 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
 
+from app.simulation.bus import EventBus
 from app.simulation.errors import CellOccupiedError, InvalidPositionError
+from app.simulation.events import Event, EventTypes
 
 if TYPE_CHECKING:
-    from app.simulation.actions import ActionEvent, ActionResult
+    from app.simulation.actions import ActionResult
 
 DEFAULT_OBJECT_TYPES = ("tree", "stone", "food")
 
@@ -116,8 +118,9 @@ class World:
         next_object_id: int | None = None,
         entities: dict[int, Position] | None = None,
         inventory: dict[int, list[int]] | None = None,
-        events: list[ActionEvent] | None = None,
+        events: list[Event] | None = None,
         next_event_id: int | None = None,
+        event_bus: EventBus | None = None,
     ):
         if not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0:
             raise ValueError(f"dimensions must be positive integers, got {width}x{height}")
@@ -140,17 +143,19 @@ class World:
         self._entities: dict[int, Position] = {}
         self._entity_cells: dict[Position, int] = {}
         for actor_id, position in (entities or {}).items():
-            self.add_entity(actor_id, position)
+            # Restore path: no events emitted while loading a saved world.
+            self._add_entity(actor_id, position)
 
         self._inventory: dict[int, list[int]] = {
             actor_id: list(items) for actor_id, items in (inventory or {}).items()
         }
-        self._events: list[ActionEvent] = list(events or [])
+        self._events: list[Event] = list(events or [])
         self._next_event_id = (
             next_event_id
             if next_event_id is not None
             else (max((e.id for e in self._events), default=0) + 1)
         )
+        self._event_bus = event_bus
 
     # ------------------------------------------------------------------
     # Generation
@@ -167,6 +172,7 @@ class World:
         water_density: float = 0.06,
         object_density: float = 0.04,
         object_types: tuple[str, ...] = DEFAULT_OBJECT_TYPES,
+        event_bus: EventBus | None = None,
     ) -> "World":
         """Generate the Void from a seed. Same seed -> identical world."""
         if wall_density < 0 or water_density < 0 or wall_density + water_density > 0.9:
@@ -189,7 +195,17 @@ class World:
                         row.append(Terrain.FLOOR)
             terrain.append(row)
 
-        world = cls(seed=seed, width=width, height=height, terrain=terrain)
+        world = cls(seed=seed, width=width, height=height, terrain=terrain, event_bus=event_bus)
+        world._add_event(
+            EventTypes.WORLD_SEEDED,
+            payload={
+                "width": width,
+                "height": height,
+                "wall_density": wall_density,
+                "water_density": water_density,
+                "object_density": object_density,
+            },
+        )
         for y in range(1, height - 1):
             for x in range(1, width - 1):
                 pos = Position(x, y)
@@ -258,6 +274,16 @@ class World:
         )
         self._register(obj)
         self._next_object_id += 1
+        self._add_event(
+            EventTypes.OBJECT_CREATED,
+            actor_id=created_by_agent_id,
+            target_id=obj.id,
+            payload={
+                "type": object_type,
+                "position": position.to_dict(),
+                "created_tick": obj.created_tick,
+            },
+        )
         return obj
 
     def _validate_position(self, position: Position) -> None:
@@ -291,6 +317,14 @@ class World:
 
     def add_entity(self, actor_id: int, position: Position) -> None:
         """Register an entity (agent, participant, ...) at a floor cell."""
+        self._add_entity(actor_id, position)
+        self._add_event(
+            EventTypes.ENTITY_ADDED,
+            actor_id=actor_id,
+            payload={"position": position.to_dict()},
+        )
+
+    def _add_entity(self, actor_id: int, position: Position) -> None:
         if not isinstance(actor_id, int) or isinstance(actor_id, bool) or actor_id <= 0:
             raise ValueError(f"actor id must be a positive integer, got {actor_id!r}")
         if actor_id in self._entities:
@@ -316,6 +350,11 @@ class World:
         position = self._entities.pop(actor_id)
         del self._entity_cells[position]
         self._inventory.pop(actor_id, None)
+        self._add_event(
+            EventTypes.ENTITY_REMOVED,
+            actor_id=actor_id,
+            payload={"position": position.to_dict()},
+        )
 
     def entity_position(self, actor_id: int) -> Position | None:
         return self._entities.get(actor_id)
@@ -345,33 +384,43 @@ class World:
 
         return execute_action(self, actor_id, action)
 
-    def _record(
-        self,
-        *,
-        ok: bool,
-        actor_id,
-        action: dict,
-        payload: dict,
-        data: dict,
-    ) -> "ActionResult":
-        from app.simulation.actions import ActionEvent, ActionResult
+    def _record_action(self, *, ok: bool, actor_id, action: dict, data: dict) -> "ActionResult":
+        from app.simulation.actions import ActionResult
 
-        event = ActionEvent(
-            id=self._next_event_id,
-            tick=self.tick,
-            type="ACTION_EXECUTED" if ok else "ACTION_REJECTED",
+        event = self._add_event(
+            EventTypes.ACTION_EXECUTED if ok else EventTypes.ACTION_REJECTED,
             actor_id=actor_id,
-            action=action,
-            payload=payload,
+            payload={"action": action, **data},
         )
-        self._next_event_id += 1
-        self._events.append(event)
         return ActionResult(
             ok=ok, actor_id=actor_id, action=action, event=event, data=data
         )
 
+    def _add_event(
+        self,
+        event_type: str,
+        *,
+        actor_id: int | None = None,
+        target_id: int | None = None,
+        payload: dict | None = None,
+    ) -> Event:
+        """Record an event, advance the sequence, and publish to the bus."""
+        event = Event(
+            id=self._next_event_id,
+            tick=self.tick,
+            type=event_type,
+            actor_id=actor_id,
+            target_id=target_id,
+            payload=payload or {},
+        )
+        self._next_event_id += 1
+        self._events.append(event)
+        if self._event_bus is not None:
+            self._event_bus.publish(event)
+        return event
+
     @property
-    def events(self) -> list["ActionEvent"]:
+    def events(self) -> list[Event]:
         """All recorded events, in order. Callers get a copy."""
         return list(self._events)
 
@@ -402,8 +451,6 @@ class World:
 
     @classmethod
     def from_dict(cls, data: dict) -> "World":
-        from app.simulation.actions import ActionEvent
-
         try:
             terrain = [
                 [_CHARS_TO_TERRAIN[char] for char in row] for row in data["terrain"]
@@ -426,7 +473,7 @@ class World:
                 int(actor_id): list(items)
                 for actor_id, items in data.get("inventory", {}).items()
             },
-            events=[ActionEvent.from_dict(e) for e in data.get("events", [])],
+            events=[Event.from_dict(e) for e in data.get("events", [])],
             next_event_id=data.get("next_event_id"),
         )
 

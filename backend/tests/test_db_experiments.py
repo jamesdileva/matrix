@@ -1,12 +1,12 @@
-from app.persistence.models import Experiment, World
+from app.persistence.models import ExperimentModel, WorldModel
 
 
 def test_experiment_insert_and_retrieve(db_session):
-    world = World(name="void-0", seed="seed-42")
+    world = WorldModel(name="void-0", seed="seed-42")
     db_session.add(world)
     db_session.commit()
 
-    experiment = Experiment(
+    experiment = ExperimentModel(
         name="lineage-drift-1",
         world_id=world.id,
         scenario="lineage_drift",
@@ -18,7 +18,7 @@ def test_experiment_insert_and_retrieve(db_session):
     db_session.add(experiment)
     db_session.commit()
 
-    fetched = db_session.query(Experiment).one()
+    fetched = db_session.query(ExperimentModel).one()
     assert fetched.name == "lineage-drift-1"
     assert fetched.status == "created"
     assert fetched.scenario == "lineage_drift"

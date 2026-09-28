@@ -1,0 +1,56 @@
+"""The platform event model.
+
+Every important state transition becomes an Event. Events are recorded
+per-world with a tick and a per-world sequence id — the timeline is
+simulation-relative by design. Wall-clock timestamps are deliberately NOT
+part of engine events: they are metadata the persistence layer adds on
+insert, because the engine must stay deterministic (same seed -> same
+events, always).
+
+Vocabulary is open-ended: new event types arrive with the features that
+produce them. The constants here are the ones the core engine emits.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+class EventTypes:
+    WORLD_SEEDED = "WORLD_SEEDED"
+    OBJECT_CREATED = "OBJECT_CREATED"
+    ENTITY_ADDED = "ENTITY_ADDED"
+    ENTITY_REMOVED = "ENTITY_REMOVED"
+    ACTION_EXECUTED = "ACTION_EXECUTED"
+    ACTION_REJECTED = "ACTION_REJECTED"
+
+
+@dataclass(frozen=True)
+class Event:
+    id: int  # per-world sequence, 1-based
+    tick: int
+    type: str
+    actor_id: int | None = None
+    target_id: int | None = None
+    payload: dict = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "tick": self.tick,
+            "type": self.type,
+            "actor_id": self.actor_id,
+            "target_id": self.target_id,
+            "payload": self.payload,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Event":
+        return cls(
+            id=data["id"],
+            tick=data["tick"],
+            type=data["type"],
+            actor_id=data.get("actor_id"),
+            target_id=data.get("target_id"),
+            payload=data.get("payload") or {},
+        )

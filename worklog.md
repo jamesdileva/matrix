@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S05 — Event Bus & Timeline
-- Completed sprints: S01, S02, S03, S04 (2026-09-28)
+- **Next sprint:** S06 — Scripted Agent (the first inhabitant)
+- Completed sprints: S01–S05 (2026-09-28)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -325,3 +325,78 @@ speak/trade actions (later sprints), diagonal movement, pathfinding.
 
 ### Commits
 - `0837ea9` — S04: actions & rules — validated action proposals, events per attempt [pushed]
+- `1c468fd` — worklog: record S04 commit hash [pushed]
+
+## S05 — Event Bus & Timeline (2026-09-28)
+
+### Plan
+Make everything observable. Generalize S04's action log into the platform
+event model (id, tick, type, actor, target, payload — deliberately no
+wall-clock timestamp inside the engine, since timestamps are metadata the
+persistence layer owns and the engine must stay deterministic). Add an
+EventBus so outer layers can subscribe — the database recorder today, the
+API/WebSocket stream later — persist events to the `events` table, provide
+recent-event queries with type/actor/since filtering, and prove the whole
+chain with the roadmap's verification: a scripted sequence whose every
+event lands in the database, in order, surviving a restart.
+
+### Scope
+In: `simulation/events.py` (Event + EventTypes vocabulary),
+`simulation/bus.py` (EventBus), world emitting OBJECT_CREATED /
+ENTITY_ADDED / ENTITY_REMOVED alongside action events, bus wiring through
+`World(generate(..., event_bus=...))`, `DatabaseEventRecorder` +
+`EventRepository` (recent/type/actor/since_id queries), `sequence` column
+migration for the events table, scripted-sequence + restart + filter
+tests. Out: WebSocket/streaming API (S13+), replay/time machine (S37),
+event retention policy (S12), MESSAGE_SENT/DISCOVERY_MADE/etc. types
+(they arrive with the features that produce them), wall-clock timestamps
+inside the engine (determinism).
+
+### Implementation
+- `simulation/events.py` — the platform event model: `Event` (id, tick,
+  type, actor_id, target_id, payload) + `EventTypes` vocabulary. No
+  wall-clock inside the engine: timestamps are persistence metadata, and
+  same-seed worlds produce identical event logs (asserted by test).
+- `simulation/bus.py` — synchronous `EventBus`; subscribers run in
+  subscription order; the bus never influences state, so determinism is
+  untouched. `World` accepts an `event_bus` (constructor and `generate`).
+- World now emits the full core vocabulary: `WORLD_SEEDED` (first event,
+  from `generate`), `OBJECT_CREATED` (every `place_object`, with actor and
+  target), `ENTITY_ADDED`/`ENTITY_REMOVED`, plus the existing
+  `ACTION_EXECUTED`/`ACTION_REJECTED` (action + result folded into
+  payload). Restore-from-dict registers entities without re-emitting.
+- Refactor: S04's `ActionEvent` → the general `Event` (action details now
+  live in payload); persistence models renamed `WorldModel`/
+  `PopulationModel`/`AgentModel`/`EventModel`/`ExperimentModel` to end the
+  domain-vs-database name collision.
+- `persistence/repositories.py` — `DatabaseEventRecorder` (bus subscriber
+  writing each event in a short session) and `EventRepository.recent()`
+  with type/actor/since_id filters applied *before* the limit (the last N
+  of a kind, not N rows that happen to match) and `count()`.
+- Migration `4e0df830e730`: `events.sequence` column preserving the
+  engine's per-world timeline id alongside the global row id (replay will
+  need it at S37).
+
+### Verification
+- Tests: pytest **57 passed** (12 new: 7 bus/model, 5 persistence).
+- Roadmap verification — scripted sequence (look, four moves with a wall
+  rejection, pick-up, double pick-up rejection, unknown action, drop):
+  every expected event lands in the `events` table **in order**, with
+  correct actor ids, engine `sequence` ids matching the in-memory log,
+  wall-clock timestamps present, and the rejection payloads carrying
+  reasons — all verified after disposing the engine and reopening storage
+  (simulated restart) ✅.
+- Bus: delivers to all subscribers in subscription order, matching the
+  world's own log; multi-world recorders stay isolated to their world ✅.
+- Queries: tail-limit returns the newest N ascending; type/actor filters
+  work (actor filter includes the actor's ENTITY_ADDED); since_id returns
+  strictly later rows ✅.
+- Determinism guard: same seed → identical event logs ✅.
+- Test-only fixes this sprint: my hardcoded coordinates kept losing to
+  seeded terrain (two tests now use plain all-floor worlds, one scans for
+  a free cell), and two tests dropped the `event_bus=` wiring or predated
+  entity events — each caught by a red suite, none by eyeball.
+- Roadmap S05 checklist: fully green.
+
+### Commits
+- (this commit) — S05: event bus & timeline — event model, bus, persistence, filtered queries

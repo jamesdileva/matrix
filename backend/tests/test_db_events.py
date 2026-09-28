@@ -2,24 +2,24 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.persistence.database import Base
-from app.persistence.models import Event, World
+from app.persistence.models import EventModel, WorldModel
 
 
 def test_event_insert_and_query_by_world_and_tick(db_session):
-    world = World(name="void-0", seed="seed-42")
+    world = WorldModel(name="void-0", seed="seed-42")
     db_session.add(world)
     db_session.commit()
 
     db_session.add_all(
         [
-            Event(
+            EventModel(
                 world_id=world.id,
                 tick=7,
                 type="AGENT_BORN",
                 actor_id=None,
                 payload={"generation": 0},
             ),
-            Event(
+            EventModel(
                 world_id=world.id,
                 tick=9,
                 type="ACTION_ATTEMPTED",
@@ -31,10 +31,10 @@ def test_event_insert_and_query_by_world_and_tick(db_session):
     )
     db_session.commit()
 
-    born = db_session.query(Event).filter_by(type="AGENT_BORN").one()
+    born = db_session.query(EventModel).filter_by(type="AGENT_BORN").one()
     assert born.tick == 7
     assert born.payload == {"generation": 0}
-    assert db_session.query(Event).filter_by(world_id=world.id).count() == 2
+    assert db_session.query(EventModel).filter_by(world_id=world.id).count() == 2
 
 
 def test_events_persist_after_process_restart(tmp_path):
@@ -46,11 +46,11 @@ def test_events_persist_after_process_restart(tmp_path):
     first_engine = create_engine(url, connect_args={"check_same_thread": False})
     Base.metadata.create_all(first_engine)
     first_session = sessionmaker(bind=first_engine, expire_on_commit=False)()
-    world = World(name="void-0", seed="seed-42")
+    world = WorldModel(name="void-0", seed="seed-42")
     first_session.add(world)
     first_session.commit()
     first_session.add(
-        Event(world_id=world.id, tick=7, type="AGENT_BORN", payload={})
+        EventModel(world_id=world.id, tick=7, type="AGENT_BORN", payload={})
     )
     first_session.commit()
     first_session.close()
@@ -59,8 +59,8 @@ def test_events_persist_after_process_restart(tmp_path):
     second_engine = create_engine(url, connect_args={"check_same_thread": False})
     second_session = sessionmaker(bind=second_engine, expire_on_commit=False)()
 
-    assert second_session.query(World).count() == 1
-    event = second_session.query(Event).one()
+    assert second_session.query(WorldModel).count() == 1
+    event = second_session.query(EventModel).one()
     assert event.type == "AGENT_BORN"
     assert event.tick == 7
 

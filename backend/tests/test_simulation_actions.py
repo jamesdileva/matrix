@@ -281,6 +281,8 @@ def test_action_state_serialization_round_trip(actor_world):
     assert restored.inventory(1) == (obj.id,)
     assert actor_world.get_object(obj.id).position is None
     assert [e.type for e in restored.events] == [
+        "ENTITY_ADDED",  # the fixture's entity
+        "OBJECT_CREATED",  # the placed food
         "ACTION_EXECUTED",  # pick_up
         "ACTION_REJECTED",  # move east into wall
         "ACTION_EXECUTED",  # move north

@@ -15,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from app.simulation.events import Event
+
 if TYPE_CHECKING:
     from app.simulation.world import World
 
@@ -27,42 +29,11 @@ DIRECTIONS: dict[str, tuple[int, int]] = {
 
 
 @dataclass(frozen=True)
-class ActionEvent:
-    id: int
-    tick: int
-    type: str  # ACTION_EXECUTED | ACTION_REJECTED
-    actor_id: int | None
-    action: dict
-    payload: dict
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "tick": self.tick,
-            "type": self.type,
-            "actor_id": self.actor_id,
-            "action": self.action,
-            "payload": self.payload,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "ActionEvent":
-        return cls(
-            id=data["id"],
-            tick=data["tick"],
-            type=data["type"],
-            actor_id=data.get("actor_id"),
-            action=data.get("action") or {},
-            payload=data.get("payload") or {},
-        )
-
-
-@dataclass(frozen=True)
 class ActionResult:
     ok: bool
     actor_id: int | None
     action: dict
-    event: ActionEvent
+    event: Event
     data: dict = field(default_factory=dict)
 
     @property
@@ -92,17 +63,16 @@ HANDLERS = {
 def execute_action(world: World, actor_id, action) -> ActionResult:
     """Validate and apply one action proposal."""
     if not isinstance(action, dict):
-        return world._record(
-            ok=False, actor_id=actor_id, action={}, payload={"reason": "invalid_action"}, data={"reason": "invalid_action"}
+        return world._record_action(
+            ok=False, actor_id=actor_id, action={}, data={"reason": "invalid_action"}
         )
 
     handler_name = HANDLERS.get(action.get("action"))
     if handler_name is None:
-        return world._record(
+        return world._record_action(
             ok=False,
             actor_id=actor_id,
             action=action,
-            payload={"reason": "unknown_action"},
             data={"reason": "unknown_action"},
         )
 
@@ -110,15 +80,13 @@ def execute_action(world: World, actor_id, action) -> ActionResult:
     try:
         data = handler(world, actor_id, action)
     except _Rejected as exc:
-        payload = {"reason": exc.reason, **exc.data}
-        return world._record(
+        return world._record_action(
             ok=False,
             actor_id=actor_id,
             action=action,
-            payload=payload,
             data={"reason": exc.reason, **exc.data},
         )
-    return world._record(ok=True, actor_id=actor_id, action=action, payload=data, data=data)
+    return world._record_action(ok=True, actor_id=actor_id, action=action, data=data)
 
 
 # ----------------------------------------------------------------------

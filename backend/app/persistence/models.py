@@ -17,7 +17,7 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class World(Base):
+class WorldModel(Base):
     __tablename__ = "worlds"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -31,13 +31,13 @@ class World(Base):
         DateTime(timezone=True), default=utcnow
     )
 
-    populations: Mapped[list["Population"]] = relationship(back_populates="world")
-    agents: Mapped[list["Agent"]] = relationship(back_populates="world")
-    events: Mapped[list["Event"]] = relationship(back_populates="world")
-    experiments: Mapped[list["Experiment"]] = relationship(back_populates="world")
+    populations: Mapped[list["PopulationModel"]] = relationship(back_populates="world")
+    agents: Mapped[list["AgentModel"]] = relationship(back_populates="world")
+    events: Mapped[list["EventModel"]] = relationship(back_populates="world")
+    experiments: Mapped[list["ExperimentModel"]] = relationship(back_populates="world")
 
 
-class Population(Base):
+class PopulationModel(Base):
     __tablename__ = "populations"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -54,11 +54,11 @@ class Population(Base):
         DateTime(timezone=True), default=utcnow
     )
 
-    world: Mapped["World"] = relationship(back_populates="populations")
-    agents: Mapped[list["Agent"]] = relationship(back_populates="population")
+    world: Mapped["WorldModel"] = relationship(back_populates="populations")
+    agents: Mapped[list["AgentModel"]] = relationship(back_populates="population")
 
 
-class Agent(Base):
+class AgentModel(Base):
     __tablename__ = "agents"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -85,20 +85,23 @@ class Agent(Base):
         DateTime(timezone=True), default=utcnow
     )
 
-    world: Mapped["World"] = relationship(back_populates="agents")
-    population: Mapped["Population | None"] = relationship(back_populates="agents")
-    parent: Mapped["Agent | None"] = relationship(
-        remote_side="Agent.id", back_populates="children"
+    world: Mapped["WorldModel"] = relationship(back_populates="agents")
+    population: Mapped["PopulationModel | None"] = relationship(back_populates="agents")
+    parent: Mapped["AgentModel | None"] = relationship(
+        remote_side="AgentModel.id", back_populates="children"
     )
-    children: Mapped[list["Agent"]] = relationship(back_populates="parent")
+    children: Mapped[list["AgentModel"]] = relationship(back_populates="parent")
 
 
-class Event(Base):
+class EventModel(Base):
     __tablename__ = "events"
     __table_args__ = (Index("ix_events_world_tick", "world_id", "tick"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     world_id: Mapped[int] = mapped_column(ForeignKey("worlds.id"))
+    # The engine's per-world sequence id (EventModel.id). The row id is global;
+    # this preserves the per-world timeline for replay.
+    sequence: Mapped[int | None] = mapped_column(nullable=True)
     tick: Mapped[int] = mapped_column(default=0)
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
@@ -110,10 +113,10 @@ class Event(Base):
     target_id: Mapped[int | None] = mapped_column(nullable=True)
     payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
-    world: Mapped["World"] = relationship(back_populates="events")
+    world: Mapped["WorldModel"] = relationship(back_populates="events")
 
 
-class Experiment(Base):
+class ExperimentModel(Base):
     __tablename__ = "experiments"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -137,4 +140,4 @@ class Experiment(Base):
         DateTime(timezone=True), nullable=True
     )
 
-    world: Mapped["World | None"] = relationship(back_populates="experiments")
+    world: Mapped["WorldModel | None"] = relationship(back_populates="experiments")
