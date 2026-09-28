@@ -399,4 +399,4 @@ inside the engine (determinism).
 - Roadmap S05 checklist: fully green.
 
 ### Commits
-- (this commit) — S05: event bus & timeline — event model, bus, persistence, filtered queries
+- `45e8810` — S05: event bus & timeline — event model, bus, persistence, filtered queries [pushed]
