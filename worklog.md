@@ -324,4 +324,4 @@ speak/trade actions (later sprints), diagonal movement, pathfinding.
 - Roadmap S04 checklist: fully green.
 
 ### Commits
-- (this commit) — S04: actions & rules — validated action proposals, events per attempt
+- `0837ea9` — S04: actions & rules — validated action proposals, events per attempt [pushed]
