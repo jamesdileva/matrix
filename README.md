@@ -36,11 +36,18 @@ npm install
 npm run dev        # http://localhost:5173 — /api is proxied to :8000
 ```
 
-World client:
+World client (Godot 4.x):
 
+```bash
+tools\godot.cmd -e --path world-client    # open the editor
+tools\godot.cmd --path world-client       # run the project
+tools\godot.cmd --headless --path world-client --quit   # headless load check
 ```
-Open world-client/project.godot in Godot 4.x and run the main scene.
-```
+
+`tools/godot.cmd` resolves the engine: `GODOT_EXE` env var → `godot` on
+PATH → newest winget install. If `godot` is already on your PATH, the usual
+`godot --path world-client` (from repo root) or `godot --path .` (from
+inside `world-client/`) works identically.
 
 ## Rules of the road
 

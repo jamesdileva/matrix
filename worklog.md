@@ -121,9 +121,11 @@ Godot connection/rendering (S06B), CI.
 - Frontend can call backend: `GET localhost:5173/api/health` through the
   dev proxy returned the backend health JSON.
 - Frontend builds: `tsc --noEmit && vite build` clean (143 KB js bundle).
-- Godot: project files created and structurally valid; **not** opened in an
-  editor (Godot is not installed on this machine's PATH) — one manual open
-  of `world-client/project.godot` will fully tick the roadmap checklist.
+- Godot: project imports and loads cleanly — `tools/godot.cmd --headless
+  --path world-client --import` and `... --quit` both exit 0 on Godot
+  4.7.2-stable (winget install, same engine as the user's surfhop project).
+  Roadmap checklist fully green. `tools/godot.cmd` locator wrapper added
+  (surfhop pattern: `GODOT_EXE` → `godot` on PATH → newest winget exe).
 - No secrets: only `.env.example` (placeholders) is tracked; `.env`,
   `.venv/`, `node_modules/`, `dist/`, `.godot/` gitignored; confirmed via
   `git status` review before commit.
