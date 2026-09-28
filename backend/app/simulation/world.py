@@ -17,8 +17,12 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from app.simulation.errors import CellOccupiedError, InvalidPositionError
+
+if TYPE_CHECKING:
+    from app.simulation.actions import ActionEvent, ActionResult
 
 DEFAULT_OBJECT_TYPES = ("tree", "stone", "food")
 
@@ -60,7 +64,7 @@ class Position:
 class WorldObject:
     id: int
     type: str
-    position: Position
+    position: Position | None  # None while carried in an entity's inventory
     created_tick: int
     properties: dict = field(default_factory=dict)
     created_by_agent_id: int | None = None
@@ -69,7 +73,7 @@ class WorldObject:
         return {
             "id": self.id,
             "type": self.type,
-            "position": self.position.to_dict(),
+            "position": self.position.to_dict() if self.position else None,
             "created_tick": self.created_tick,
             "properties": self.properties,
             "created_by_agent_id": self.created_by_agent_id,
@@ -80,7 +84,7 @@ class WorldObject:
         return cls(
             id=data["id"],
             type=data["type"],
-            position=Position.from_dict(data["position"]),
+            position=Position.from_dict(data["position"]) if data.get("position") else None,
             created_tick=data["created_tick"],
             properties=data.get("properties") or {},
             created_by_agent_id=data.get("created_by_agent_id"),
@@ -88,7 +92,17 @@ class WorldObject:
 
 
 class World:
-    """A bounded grid world with deterministic seeded generation."""
+    """A bounded grid world with deterministic seeded generation.
+
+    Rules of ownership:
+    - All mutation flows through validated entry points (`place_object`,
+      `add_entity`, `execute_action`). There is no other way to change
+      state, and invalid proposals never half-apply.
+    - Terrain (walls, water) and objects on cells block movement.
+    - An entity may share its cell with an object it dropped there, but
+      cannot move onto a cell that already holds an object.
+    - Every action attempt produces exactly one event.
+    """
 
     def __init__(
         self,
@@ -100,6 +114,10 @@ class World:
         terrain: list[list[Terrain]] | None = None,
         objects: list[WorldObject] | None = None,
         next_object_id: int | None = None,
+        entities: dict[int, Position] | None = None,
+        inventory: dict[int, list[int]] | None = None,
+        events: list[ActionEvent] | None = None,
+        next_event_id: int | None = None,
     ):
         if not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0:
             raise ValueError(f"dimensions must be positive integers, got {width}x{height}")
@@ -118,6 +136,21 @@ class World:
             self._next_object_id = next_object_id
         else:
             self._next_object_id = max(self._objects, default=0) + 1
+
+        self._entities: dict[int, Position] = {}
+        self._entity_cells: dict[Position, int] = {}
+        for actor_id, position in (entities or {}).items():
+            self.add_entity(actor_id, position)
+
+        self._inventory: dict[int, list[int]] = {
+            actor_id: list(items) for actor_id, items in (inventory or {}).items()
+        }
+        self._events: list[ActionEvent] = list(events or [])
+        self._next_event_id = (
+            next_event_id
+            if next_event_id is not None
+            else (max((e.id for e in self._events), default=0) + 1)
+        )
 
     # ------------------------------------------------------------------
     # Generation
@@ -240,13 +273,107 @@ class World:
             )
 
     def _register(self, obj: WorldObject) -> None:
-        self._validate_position(obj.position)
         if obj.id in self._objects:
             raise ValueError(f"duplicate object id {obj.id}")
+        if obj.position is None:
+            # Carried in some entity's inventory — on the registry, off the grid.
+            self._objects[obj.id] = obj
+            return
+        self._validate_position(obj.position)
         if obj.position in self._occupancy:
             raise CellOccupiedError(f"cell {obj.position.x},{obj.position.y} is occupied")
         self._objects[obj.id] = obj
         self._occupancy[obj.position] = obj.id
+
+    # ------------------------------------------------------------------
+    # Entities and inventory
+    # ------------------------------------------------------------------
+
+    def add_entity(self, actor_id: int, position: Position) -> None:
+        """Register an entity (agent, participant, ...) at a floor cell."""
+        if not isinstance(actor_id, int) or isinstance(actor_id, bool) or actor_id <= 0:
+            raise ValueError(f"actor id must be a positive integer, got {actor_id!r}")
+        if actor_id in self._entities:
+            raise ValueError(f"entity {actor_id} already exists")
+        self._validate_position(position)
+        if position in self._occupancy:
+            raise CellOccupiedError(
+                f"cell {position.x},{position.y} holds object {self._occupancy[position]}"
+            )
+        if position in self._entity_cells:
+            raise CellOccupiedError(
+                f"cell {position.x},{position.y} already holds entity {self._entity_cells[position]}"
+            )
+        self._entities[actor_id] = position
+        self._entity_cells[position] = actor_id
+
+    def remove_entity(self, actor_id: int) -> None:
+        """Remove an entity. Refuses while it is still carrying objects."""
+        if actor_id not in self._entities:
+            raise ValueError(f"unknown entity {actor_id}")
+        if self._inventory.get(actor_id):
+            raise ValueError(f"entity {actor_id} still carries objects; drop them first")
+        position = self._entities.pop(actor_id)
+        del self._entity_cells[position]
+        self._inventory.pop(actor_id, None)
+
+    def entity_position(self, actor_id: int) -> Position | None:
+        return self._entities.get(actor_id)
+
+    @property
+    def entity_ids(self) -> list[int]:
+        return sorted(self._entities)
+
+    def inventory(self, actor_id: int) -> tuple[int, ...]:
+        return tuple(self._inventory.get(actor_id, ()))
+
+    # ------------------------------------------------------------------
+    # Actions
+    # ------------------------------------------------------------------
+
+    def execute_action(self, actor_id, action) -> "ActionResult":
+        """The only way entities change the world.
+
+        Accepts an action proposal (a plain dict like
+        ``{"action": "move", "direction": "north"}``), validates it against
+        the rules, and either applies it or rejects it. Never raises for
+        rule violations: rejections come back as an ``ActionResult`` with
+        ``ok=False`` plus a recorded event. Exactly one event is recorded
+        per attempt, executed or rejected.
+        """
+        from app.simulation.actions import execute_action
+
+        return execute_action(self, actor_id, action)
+
+    def _record(
+        self,
+        *,
+        ok: bool,
+        actor_id,
+        action: dict,
+        payload: dict,
+        data: dict,
+    ) -> "ActionResult":
+        from app.simulation.actions import ActionEvent, ActionResult
+
+        event = ActionEvent(
+            id=self._next_event_id,
+            tick=self.tick,
+            type="ACTION_EXECUTED" if ok else "ACTION_REJECTED",
+            actor_id=actor_id,
+            action=action,
+            payload=payload,
+        )
+        self._next_event_id += 1
+        self._events.append(event)
+        return ActionResult(
+            ok=ok, actor_id=actor_id, action=action, event=event, data=data
+        )
+
+    @property
+    def events(self) -> list["ActionEvent"]:
+        """All recorded events, in order. Callers get a copy."""
+        return list(self._events)
 
     # ------------------------------------------------------------------
     # Serialization and display
@@ -261,10 +388,22 @@ class World:
             "next_object_id": self._next_object_id,
             "terrain": ["".join(t.char for t in row) for row in self.terrain],
             "objects": [obj.to_dict() for obj in self.objects],
+            "entities": {
+                str(actor_id): pos.to_dict()
+                for actor_id, pos in sorted(self._entities.items())
+            },
+            "inventory": {
+                str(actor_id): list(items)
+                for actor_id, items in sorted(self._inventory.items())
+            },
+            "next_event_id": self._next_event_id,
+            "events": [event.to_dict() for event in self._events],
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "World":
+        from app.simulation.actions import ActionEvent
+
         try:
             terrain = [
                 [_CHARS_TO_TERRAIN[char] for char in row] for row in data["terrain"]
@@ -279,6 +418,16 @@ class World:
             terrain=terrain,
             objects=[WorldObject.from_dict(o) for o in data["objects"]],
             next_object_id=data["next_object_id"],
+            entities={
+                int(actor_id): Position.from_dict(pos)
+                for actor_id, pos in data.get("entities", {}).items()
+            },
+            inventory={
+                int(actor_id): list(items)
+                for actor_id, items in data.get("inventory", {}).items()
+            },
+            events=[ActionEvent.from_dict(e) for e in data.get("events", [])],
+            next_event_id=data.get("next_event_id"),
         )
 
     def render(self) -> str:

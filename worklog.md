@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S04 — Actions & Rules
-- Completed sprints: S01, S02, S03 (2026-09-28)
+- **Next sprint:** S05 — Event Bus & Timeline
+- Completed sprints: S01, S02, S03, S04 (2026-09-28)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -256,3 +256,72 @@ physics beyond one-object-per-cell occupancy.
 
 ### Commits
 - `b9672c4` — S03: deterministic world engine — seeded grid, terrain, objects, tick, serialization [pushed]
+- `6f6cffc` — worklog: record S03 commit hash [pushed]
+
+## S04 — Actions & Rules (2026-09-28)
+
+### Plan
+Give entities a rules engine. The world accepts action proposals (move,
+look, inspect, pick_up, drop, place) as plain dicts, validates every one,
+mutates state only when legal, and records exactly one event per attempt —
+executed or rejected. This is the contract every mind will use from S08
+onward: the model proposes, the world decides. The LLM never mutates world
+state directly.
+
+### Scope
+In: entity registry + per-entity inventories on `World`;
+`execute_action(actor_id, action)` dispatcher with the six roadmap
+actions; `ActionResult` / `ActionEvent` with rejection reasons; event-per-
+attempt semantics; serialization of entities/inventory/events; tests for
+every roadmap checklist item. Out: event bus, persistence, query/filtering
+(S05), Agent lifecycle and bounded observation (S06), use/build/destroy/
+speak/trade actions (later sprints), diagonal movement, pathfinding.
+
+### Implementation
+- `backend/app/simulation/actions.py` — the proposal contract:
+  `execute_action(world, actor_id, action)` dispatches plain-dict actions
+  (`{"action": "move", "direction": "north"}`) to six handlers
+  (move/look/inspect/pick_up/drop/place). Rule violations raise an
+  internal `_Rejected(reason)` that becomes an `ActionResult(ok=False)`
+  plus an `ACTION_REJECTED` event; successes become `ACTION_EXECUTED`.
+  `ActionResult.data` carries look/inspect results and move targets.
+- `world.py` additions: entity registry (`add_entity`, `remove_entity`,
+  `entity_position`), per-entity inventories, the event log with
+  sequential ids (`world.events`, `_record`), and `execute_action` on
+  `World` (late import — the two modules reference each other only at
+  call time). Serialization extended: entities, inventory, events,
+  `next_event_id` all round-trip; `WorldObject.position` is now nullable
+  (None while carried).
+- Rules encoded this sprint: 4-directional movement; walls and water both
+  block; cells holding objects block entry; an entity may share its own
+  cell with at most one dropped object; pick_up/inspect reach is the
+  actor's cell plus orthogonal neighbours (Manhattan ≤ 1); drop targets
+  the actor's cell, place targets an adjacent cell; unknown actions and
+  unknown actors are rejected — always with an event, never with a
+  mutation.
+
+### Verification
+- Tests: pytest **45 passed** (20 new action/rules tests).
+- Valid move succeeds ✅ · wall collision fails ✅ (and water, out-of-
+  bounds, entities, objects all block with distinct reasons).
+- Pick-up works ✅ (ground → inventory, cell freed, carried object
+  serializes with null position) · drop works ✅ (inventory → ground,
+  at the actor's cell or — via place — an adjacent one).
+- Invalid actions do not mutate state ✅: nine malformed/illegal
+  proposals (unknown action, missing/bad direction, unknown/non-int
+  object ids, non-dict payloads) all rejected; world state byte-identical
+  before/after.
+- Every action creates an event ✅: exactly one event per attempt,
+  `ACTION_EXECUTED`/`ACTION_REJECTED` types correct, ids strictly
+  sequential; the event log itself round-trips through serialization and
+  restored worlds keep accepting actions.
+- Bugs caught and fixed mid-sprint: `from_dict` referenced `ActionEvent`
+  with a TYPE_CHECKING-only import (NameError at runtime — caught by the
+  round-trip test); `_register` rejected carried objects during restore
+  (None positions); plus two test-logic errors of my own (assumed border
+  walls on a plain constructed world; stale position in an event-
+  sequence assertion). Engine and tests both end the sprint honest.
+- Roadmap S04 checklist: fully green.
+
+### Commits
+- (this commit) — S04: actions & rules — validated action proposals, events per attempt
