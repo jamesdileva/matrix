@@ -259,6 +259,7 @@ flood/
 ├── architecture.md
 ├── implementation-guide.md
 ├── sprint-roadmap.md
+├── quick-reference.md
 ├── .env.example
 ├── .gitignore
 │
@@ -315,6 +316,10 @@ flood/
 │   │   ├── unit/
 │   │   ├── integration/
 │   │   └── scenarios/
+│   │
+│   ├── alembic/
+│   │   └── versions/
+│   ├── alembic.ini
 │   │
 │   └── requirements.txt
 │

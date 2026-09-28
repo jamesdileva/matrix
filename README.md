@@ -14,6 +14,7 @@ inherit knowledge and culture, and can be observed or entered by a human.
 | `architecture.md` | Baseline architecture. |
 | `implementation-guide.md` | Layer-by-layer build guide. |
 | `sprint-roadmap.md` | Sprints S01–S50+ with verification checklists. |
+| `quick-reference.md` | Everyday commands (backend, console, Godot, DB, git). |
 | `worklog.md` | Per-sprint log: plan → scope → implement → verify → commit+push. |
 
 ## Quickstart
