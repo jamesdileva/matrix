@@ -322,7 +322,6 @@ flood/
 │   ├── src/
 │   │   ├── components/
 │   │   ├── pages/
-│   │   ├── world/
 │   │   ├── lineage/
 │   │   ├── experiments/
 │   │   ├── hooks/
@@ -330,6 +329,10 @@ flood/
 │   │   ├── types/
 │   │   └── App.tsx
 │   └── package.json
+│
+├── world-client/
+│   ├── project.godot
+│   └── scenes/
 │
 ├── simulation-data/
 │   ├── experiments/

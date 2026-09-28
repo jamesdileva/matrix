@@ -72,10 +72,62 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S01 — Repository & Development Baseline
-- Completed sprints: none yet
+- **Next sprint:** S02 — Database & Persistence
+- Completed sprints: S01 (2026-09-28)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
 
-(no entries yet — the first entry lands with S01)
+## S01 — Repository & Development Baseline (2026-09-28)
+
+### Plan
+Create the project skeleton and local development workflow: a runnable
+FastAPI backend, a runnable web console that talks to it, an openable Godot
+4 world-client project, and the surrounding hygiene (README, env config,
+gitignore, tests). This is the empty box every later sprint builds inside.
+
+### Scope
+In: backend skeleton (FastAPI, `/api/health`, pytest suite); Vite + React +
+TS console that displays backend health; Godot 4 project with an empty main
+scene; `.env.example` + `.gitignore`; README; architecture repo structure
+updated for `world-client/`. GitHub remote `jamesdileva/matrix` (public).
+Out: database (S02), world engine (S03), any UI beyond the health check,
+Godot connection/rendering (S06B), CI.
+
+### Implementation
+- `backend/`: FastAPI app (`app/main.py`, CORS + `/api/health` in
+  `app/api/health.py`), pydantic-settings config (`app/config/settings.py`,
+  `FLOOD_` env prefix), pytest suite (`tests/test_health.py`, 2 tests),
+  `pytest.ini`, `requirements.txt`. Env at `backend/.venv` (gitignored).
+  Python 3.14.3, FastAPI 0.141, SQLAlchemy 2.1 (installed, unused until S02).
+- `frontend/`: Vite 5 + React 18 + TS. `src/App.tsx` fetches `/api/health`
+  and shows backend status (dark console, green accents). Dev proxy
+  `/api` → `127.0.0.1:8000` (`vite.config.ts`). `npm run build` =
+  `tsc --noEmit` + `vite build`.
+- `world-client/`: Godot 4 project (`project.godot`, main scene set) with
+  empty `scenes/main.tscn` (root `Node` "Main").
+- Root: `README.md` (layout + quickstart), `.env.example`, `.gitignore`.
+  `architecture.md` §5 repo structure updated: `world-client/` added,
+  `frontend/world/` (canvas-era) removed.
+- Remote: public repo `jamesdileva/matrix` created with gh; `main` tracks
+  `origin/main`; baseline docs commit pushed before this sprint's commit.
+
+### Verification
+- Tests: `pytest -q` — **2 passed**. (One benign deprecation warning:
+  starlette suggests httpx2 for TestClient; revisit when it matters.)
+- Backend starts: uvicorn booted clean; `GET /api/health` → 200
+  `{"status":"ok","service":"flood-backend","version":"0.1.0",...}`.
+- Frontend starts: vite dev ready on :5173; page serves HTTP 200.
+- Frontend can call backend: `GET localhost:5173/api/health` through the
+  dev proxy returned the backend health JSON.
+- Frontend builds: `tsc --noEmit && vite build` clean (143 KB js bundle).
+- Godot: project files created and structurally valid; **not** opened in an
+  editor (Godot is not installed on this machine's PATH) — one manual open
+  of `world-client/project.godot` will fully tick the roadmap checklist.
+- No secrets: only `.env.example` (placeholders) is tracked; `.env`,
+  `.venv/`, `node_modules/`, `dist/`, `.godot/` gitignored; confirmed via
+  `git status` review before commit.
+
+### Commits
+- `1c385f0` — Initial commit: baseline docs + worklog (D001) [pushed]
+- (this commit) — S01: repository baseline — backend, web console, Godot client skeleton
