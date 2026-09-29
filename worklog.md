@@ -482,4 +482,4 @@ RandomAgent and the other §30 test agents (S30).
 - Roadmap S06 checklist: fully green.
 
 ### Commits
-- (this commit) — S06: scripted agent — Agent, policies, Engine, observation
+- `c11fbcf` — S06: scripted agent — Agent, policies, Engine, bounded observation [pushed]
