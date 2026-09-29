@@ -359,6 +359,14 @@ class World:
     def entity_position(self, actor_id: int) -> Position | None:
         return self._entities.get(actor_id)
 
+    def entity_at(self, position: Position) -> int | None:
+        """Which entity stands on a cell, if any."""
+        return self._entity_cells.get(position)
+
+    def entity_positions(self) -> dict[int, Position]:
+        """All entity positions (a copy; safe to iterate)."""
+        return dict(self._entities)
+
     @property
     def entity_ids(self) -> list[int]:
         return sorted(self._entities)
@@ -478,10 +486,13 @@ class World:
         )
 
     def render(self) -> str:
-        """ASCII view of the world. Terrain chars, objects overlaid."""
+        """ASCII view of the world. Terrain chars, then objects, then
+        entities (``@``) on top."""
         grid = [[t.char for t in row] for row in self.terrain]
         for obj in self.objects:
             grid[obj.position.y][obj.position.x] = _OBJECT_CHARS.get(obj.type, "?")
+        for position in self._entity_cells:
+            grid[position.y][position.x] = "@"
         return "\n".join("".join(row) for row in grid)
 
     def __repr__(self) -> str:

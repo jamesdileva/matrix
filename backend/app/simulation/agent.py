@@ -1,0 +1,147 @@
+"""Agents: the inhabitants of the Void.
+
+An Agent is a thin actor over the action contract. It owns no world state
+— its position, inventory and history live in the World — and it never
+mutates the world except through ``world.execute_action``. What
+distinguishes one agent from another is its policy: a function from
+observation to a decision. Scripted policies today; model-driven
+decisions in S08 through the same contract.
+
+Policies must be stateless functions of the observation. Memory,
+personality and history arrive with real cognition (S08+) — until then,
+determinism of the whole simulation rests on decisions being pure.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Protocol
+
+from app.simulation.actions import DIRECTIONS, ActionResult
+from app.simulation.world import Position, World
+
+
+class Policy(Protocol):
+    """A decision strategy: observation -> decision dict.
+
+    Decision shape (implementation guide §7, shared with the future LLM
+    contract):
+
+        {"action": {...action proposal...},
+         "goal_update": str | None}          # optional
+
+    "thought_summary"/"message" may appear once minds can produce them;
+    the Agent ignores keys it does not know.
+    """
+
+    def decide(self, observation: dict) -> dict: ...
+
+
+@dataclass
+class Agent:
+    agent_id: int
+    policy: Policy
+    observation_radius: int = 2
+    goal: str | None = None
+    status: str = "created"  # created -> alive
+    _world: World | None = field(default=None, repr=False, compare=False)
+
+    def spawn(self, world: World, position: Position) -> None:
+        """Enter the world. The world validates the cell; failures raise."""
+        if self.status == "alive":
+            raise RuntimeError(f"agent {self.agent_id} is already alive")
+        world.add_entity(self.agent_id, position)
+        self._world = world
+        self.status = "alive"
+
+    @property
+    def position(self) -> Position | None:
+        return self._world.entity_position(self.agent_id) if self._world else None
+
+    # ------------------------------------------------------------------
+    # Lifecycle phases (implementation guide §7): observe -> decide -> act
+    # ------------------------------------------------------------------
+
+    def observe(self) -> dict:
+        """Bounded, radius-limited view of the world.
+
+        Observation is sensing, not acting: it records no events and is
+        free. ``nearby`` is bounded by ``observation_radius``; the
+        movement ``cells`` are always the immediate neighbourhood.
+        The whole world is never included.
+        """
+        if self._world is None or self.status != "alive":
+            raise RuntimeError(f"agent {self.agent_id} is not alive; spawn it first")
+        world = self._world
+        position = world.entity_position(self.agent_id)
+        if position is None:  # pragma: no cover - status and registry agree
+            raise RuntimeError(f"agent {self.agent_id} has no position")
+
+        cells = []
+        for name, (dx, dy) in [("here", (0, 0))] + list(DIRECTIONS.items()):
+            cell_pos = Position(position.x + dx, position.y + dy)
+            cell: dict = {"direction": name, "position": cell_pos.to_dict()}
+            if not world.in_bounds(cell_pos):
+                cell["terrain"] = "void"
+            else:
+                cell["terrain"] = world.terrain_at(cell_pos).value
+                obj = world.object_at(cell_pos)
+                if obj is not None:
+                    cell["object"] = {"id": obj.id, "type": obj.type}
+                entity = world.entity_at(cell_pos)
+                if entity is not None and entity != self.agent_id:
+                    cell["entity"] = entity
+            cells.append(cell)
+
+        radius = self.observation_radius
+        nearby = []
+        for y in range(position.y - radius, position.y + radius + 1):
+            for x in range(position.x - radius, position.x + radius + 1):
+                cell_pos = Position(x, y)
+                if cell_pos == position or not world.in_bounds(cell_pos):
+                    continue
+                distance = abs(x - position.x) + abs(y - position.y)
+                obj = world.object_at(cell_pos)
+                if obj is not None:
+                    nearby.append(
+                        {"kind": "object", "id": obj.id, "type": obj.type,
+                         "position": cell_pos.to_dict(), "distance": distance}
+                    )
+                entity = world.entity_at(cell_pos)
+                if entity is not None:
+                    nearby.append(
+                        {"kind": "entity", "id": entity,
+                         "position": cell_pos.to_dict(), "distance": distance}
+                    )
+        nearby.sort(key=lambda n: (n["distance"], n["kind"], n["id"]))
+
+        return {
+            "self": {
+                "id": self.agent_id,
+                "position": position.to_dict(),
+                "tick": world.tick,
+                "goal": self.goal,
+            },
+            "cells": cells,
+            "nearby": nearby,
+            "inventory": list(world.inventory(self.agent_id)),
+            "messages": [],  # communication arrives in later sprints
+        }
+
+    def decide(self) -> dict:
+        return self.policy.decide(self.observe())
+
+    def act(self) -> ActionResult:
+        """One cognition cycle: observe, decide, propose the action.
+
+        The world still decides everything — a broken or illegal decision
+        comes back as a rejected ActionResult and the agent lives on.
+        """
+        decision = self.decide()
+        if not isinstance(decision, dict):
+            decision = {}
+        goal_update = decision.get("goal_update")
+        if goal_update is not None:
+            self.goal = goal_update
+        action = decision.get("action")
+        return self._world.execute_action(self.agent_id, action)

@@ -45,11 +45,12 @@ tools/godot.cmd --headless --path world-client --quit   # headless load check (C
 ```bash
 cd backend
 .venv/Scripts/python -m app.simulation --seed matrix --width 32 --height 32  # print the Void
+.venv/Scripts/python -m app.simulation --seed matrix --agents 3 --ticks 40   # + scripted agents living in it
 .venv/Scripts/python -m pytest tests/test_simulation_world.py -q             # engine tests
 ```
 
 The engine (`app/simulation/`) is pure Python — no DB, no API. Same seed
-always produces the same world.
+always produces the same world, the same agents, the same history.
 
 ## Database (S02+)
 

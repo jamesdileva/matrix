@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S06 — Scripted Agent (the first inhabitant)
-- Completed sprints: S01–S05 (2026-09-28)
+- **Next sprint:** S06B — 3D World Client (Godot): jump into the Void
+- Completed sprints: S01–S06 (2026-09-28)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -400,3 +400,86 @@ inside the engine (determinism).
 
 ### Commits
 - `45e8810` — S05: event bus & timeline — event model, bus, persistence, filtered queries [pushed]
+- `7b85cdc` — worklog: record S05 commit hash [pushed]
+
+## S06 — Scripted Agent (2026-09-28)
+
+### Plan
+Put the first inhabitant in the Void. An Agent is a thin actor over the
+action contract: it spawns into the world, observes a bounded
+neighbourhood, and a pluggable policy turns observation into a decision
+executed through `world.execute_action`. Policies are scripted this
+sprint — no model calls — but the seam they define is exactly where S07/S08
+plug in intelligence: same observe-decide-act lifecycle, same decision
+dict shape as the future LLM contract. An Engine owns the tick loop:
+world advances, then each agent (ascending id, deterministic) acts.
+
+### Scope
+In: `Agent` (spawn / observe / act, goal updates, status lifecycle),
+`Policy` protocol, three scripted policies (AlwaysMoveNorth, Wander,
+Forager), `Engine` (step/run with deterministic ordering), the bounded
+observation shape from implementation guide §6 (self, movement cells,
+nearby by radius, inventory, messages placeholder), entity overlay in
+`render()`, `--agents/--ticks` flags on the demo CLI, and tests for every
+roadmap checklist item plus determinism and a 300-tick survival run.
+Out: model provider (S07), LLM agent (S08), memory/cognition internals,
+reproduction and lineage (S09+), agent-state persistence (experiments
+layer), a cognition scheduler (every agent acts every tick for now),
+RandomAgent and the other §30 test agents (S30).
+
+### Implementation
+- `simulation/agent.py` — `Agent`: spawn (via `world.add_entity`), status
+  lifecycle (created -> alive), goal tracking, and the three lifecycle
+  phases. `observe()` returns the bounded view from guide §6 — `self`
+  (id/position/tick/goal), `cells` (here + 4 directions with terrain,
+  object, entity — the movement senses), `nearby` (objects/entities
+  within a configurable radius, sorted by distance then id), `inventory`,
+  and a `messages` placeholder. Observation is sensing, not acting: no
+  events, no cost. `act()` runs observe -> policy.decide -> execute via
+  the action contract; malformed decisions come back as rejections and
+  the agent survives. `Policy` is a Protocol whose decision dict shape
+  (`{"action": ..., "goal_update": ...}`) mirrors the future LLM
+  contract (guide §7) — S08 swaps minds, not plumbing.
+- `simulation/policies.py` — three scripted, pure, deterministic
+  policies: `AlwaysMoveNorthPolicy` (trivial), `WanderPolicy` (first
+  legal direction of a fixed order, looks when stuck), `ForagerPolicy`
+  (pick up what's in reach, step greedily toward the nearest visible
+  object, wander otherwise).
+- `simulation/engine.py` — `Engine`: owns a world plus agents, `step()`
+  advances the world then lets every agent act in ascending id order;
+  `run(ticks)` loops. Determinism contract documented: same seed + same
+  script -> identical histories (test-proven).
+- `world.py`: public read accessors `entity_at` / `entity_positions`;
+  `render()` overlays entities as `@`.
+- Demo CLI grew `--agents N --ticks T`: spawns wanderers on the first
+  free floor cells and animates them, printing final positions and
+  executed/rejected event counts.
+
+### Verification
+- Tests: pytest **68 passed** (11 new).
+- Roadmap checklist: agent spawns ✅ (status, position, ENTITY_ADDED
+  naming the agent) · moves ✅ (policy-driven, event tick correct) ·
+  observes ✅ (bounded nearby with radius filtering — an object at
+  distance 4 is invisible at radius 2 — cells report terrain, inventory
+  empty, messages placeholder) · interacts with an object ✅ (forager
+  picks up adjacent food; also walks two cells toward visible food then
+  grabs it) · events identify the correct agent ✅ (two agents, one
+  step, actors partition exactly; each agent's position reflects only
+  its own policy).
+- Determinism: two engines, same seed and script, 25 ticks with mixed
+  policies -> identical `to_dict()` ✅.
+- Survival: two agents (wander + forager) run 300 ticks on a generated
+  world — alive, on valid cells, every event attributed to a known actor
+  ✅ (guide §9's "several hundred ticks").
+- Resilience: a policy that emits garbage gets `invalid_action`
+  rejections; the agent stays alive and unmoved ✅.
+- Live demo: `--seed matrix --agents 3 --ticks 40` -> 120 executed
+  actions, 0 rejected, agents visible as `@@@` in the ASCII render.
+- Test-authoring notes: direction order follows the DIRECTIONS dict
+  (here/north/south/east/west) — one expectation fixed; observation
+  radius is real (a distance-3 food item is invisible at radius 2) —
+  one scenario corrected. Red suite caught both, as designed.
+- Roadmap S06 checklist: fully green.
+
+### Commits
+- (this commit) — S06: scripted agent — Agent, policies, Engine, observation
