@@ -40,9 +40,16 @@ npm run dev        # http://localhost:5173 — /api is proxied to :8000
 World client (Godot 4.x):
 
 ```bash
-tools\godot.cmd -e --path world-client    # open the editor
-tools\godot.cmd --path world-client       # run the project
-tools\godot.cmd --headless --path world-client --quit   # headless load check
+cd backend && .venv/Scripts/python -m uvicorn app.main:app --port 8000   # terminal 1
+tools/godot.cmd --path world-client                                      # terminal 2 — jump in
+```
+
+The client creates a live world on connect (seed via `FLOOD_SEED`), renders
+it in 3D, and streams agent positions at 5 Hz. Headless checks:
+
+```bash
+tools/godot.cmd --headless --path world-client --script res://tests/smoke.gd
+FLOOD_SMOKE=1 tools/godot.cmd --headless --path world-client   # E2E vs live backend
 ```
 
 `tools/godot.cmd` resolves the engine: `GODOT_EXE` env var → `godot` on

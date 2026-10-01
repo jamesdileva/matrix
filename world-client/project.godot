@@ -9,3 +9,12 @@ config_version=5
 config/name="Flood World Client"
 config/description="Flood 3D world client. Renders the simulation and proposes actions; never owns world truth."
 run/main_scene="res://scenes/main.tscn"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+
+[rendering]
+
+environment/defaults/default_clear_color=Color(0.008, 0.02, 0.014, 1)

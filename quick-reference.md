@@ -32,13 +32,25 @@ cd frontend && npm run build        # typecheck + production build
 
 ```bash
 tools/godot.cmd -e --path world-client      # open editor
-tools/godot.cmd --path world-client         # run the project
-tools/godot.cmd --headless --path world-client --quit   # headless load check (CI/scriptable)
+tools/godot.cmd --path world-client         # run the client (needs backend on :8000)
+tools/godot.cmd --headless --path world-client --quit   # headless load check
 
-# tools/godot.cmd resolves the engine: GODOT_EXE env var -> `godot` on PATH
-# -> newest winget install. If `godot` resolves in your shell, plain
-# `godot --path world-client` is identical.
+# client headless tests (no backend needed)
+tools/godot.cmd --headless --path world-client --script res://tests/smoke.gd
+
+# full E2E smoke (needs backend running)
+FLOOD_SMOKE=1 tools/godot.cmd --headless --path world-client
 ```
+
+Environment: `FLOOD_API` (backend URL, default `http://127.0.0.1:8000`),
+`FLOOD_SEED` (world seed, default `matrix`), `FLOOD_SMOKE=1` (self-test).
+Controls: LMB agent = follow, LMB empty/Esc = release, hold RMB = look,
+WASD/QE = move, wheel = speed. (In Git Bash, prefix godot.cmd calls with
+`MSYS_NO_PATHCONV=1` when args contain `res://`.)
+
+`tools/godot.cmd` resolves the engine: `GODOT_EXE` env var -> `godot` on PATH
+-> newest winget install. If `godot` resolves in your shell, plain
+`godot --path world-client` is identical.
 
 ## World engine (S03+)
 
@@ -51,6 +63,18 @@ cd backend
 
 The engine (`app/simulation/`) is pure Python — no DB, no API. Same seed
 always produces the same world, the same agents, the same history.
+
+## Simulation API (S06B+)
+
+```bash
+# backend must be running (see Backend section)
+curl -s -X POST localhost:8000/api/worlds -H "Content-Type: application/json" \
+     -d '{"seed": "matrix", "agents": 3}'          # create live world
+curl -s localhost:8000/api/worlds/1                # state snapshot
+curl -s "localhost:8000/api/worlds/1/events?since_id=0&limit=50"
+curl -s -X POST localhost:8000/api/worlds/1/step   # advance one tick
+curl -s -X POST localhost:8000/api/worlds/1/pause  # /resume · DELETE removes
+```
 
 ## Database (S02+)
 

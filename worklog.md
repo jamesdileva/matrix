@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S06B — 3D World Client (Godot): jump into the Void
-- Completed sprints: S01–S06 (2026-09-28)
+- **Next sprint:** S07 — Model Provider Abstraction
+- Completed sprints: S01–S06, S06B (2026-09-28)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -483,3 +483,100 @@ RandomAgent and the other §30 test agents (S30).
 
 ### Commits
 - `c11fbcf` — S06: scripted agent — Agent, policies, Engine, bounded observation [pushed]
+- `e65c463` — worklog: record S06 commit hash [pushed]
+
+## S06B — 3D World Client (2026-09-28)
+
+### Plan
+The jump-in moment. Two halves: first the backend grows a real Simulation
+API — create a world, step it, watch its state and events — binding the
+pure engine to a database row with event persistence end to end, and
+running worlds on an asyncio tick loop (the client should watch a live
+world, not drive it). Then the Godot 4 client connects over REST, builds
+the Void in 3D (instanced walls/water, emissive agents with name labels,
+Matrix-dark baseline per D001), interpolates agent movement between
+snapshots at 5 Hz, and offers a free-fly camera plus click-to-follow.
+The client renders and watches; world truth stays server-side.
+
+### Scope
+In: `World.snapshot()`, `WorldHost` (asyncio loop with pause/resume/
+step/max-ticks), `WorldRegistry` (DB row + engine + recorder + host per
+world, lifespan-managed), Simulation API (POST/GET/DELETE worlds, state,
+step, pause/resume, events since_id), full pytest coverage with an
+isolated-app fixture including the engine→bus→DB chain; Godot client
+(`api.gd` REST, `world_view.gd` instanced rendering + interpolation +
+screen-space agent picking, `free_cam.gd` fly/follow camera, `main.gd`
+orchestration + event log UI + Matrix-dark environment), a headless
+fixture smoke test, and a true E2E smoke: live uvicorn + headless client
+connects, renders real state, quits clean.
+Out: WebSocket push (REST polling at 5 Hz for now; push lands with the
+S13 dashboard where it pays off), participant avatar and movement (S20),
+agent inspector panel (S14), materials/shader polish beyond the baseline,
+client-side prediction (interpolation only), world persistence/reconnect
+(S38), CORS-independent deployment concerns.
+
+### Implementation
+- Backend — the Simulation API is real now:
+  - `app/host.py`: `WorldHost` (asyncio tick loop with pause/resume,
+    manual step, `max_ticks` bounded runs for tests — the bound counts
+    loop *iterations* so a paused host still terminates) and
+    `WorldRegistry` (per world: DB row + generated world + scripted
+    agents alternating wander/forager + `DatabaseEventRecorder` on the
+    bus + host; lifespan-managed, stopped on shutdown).
+  - `app/api/worlds.py`: POST `/worlds` (create; async — autostart needs
+    the event loop), GET `/worlds` + `/{id}` (state snapshot incl.
+    paused/agent_count), POST `/{id}/step|pause|resume`, GET
+    `/{id}/events?since_id&limit`, DELETE `/{id}`. Truth stays in the
+    engine; routes only orchestrate.
+  - `World.snapshot()`: render-ready state (terrain rows, ground objects,
+    entity positions) with no events or bookkeeping.
+- Godot client (`world-client/`), all nodes built in code:
+  - `scripts/api.gd`: REST client over short-lived HTTPRequest nodes
+    (state + events polls can be in flight together), JSON-safe error
+    handling, `FLOOD_API` override.
+  - `scripts/world_view.gd`: one-shot instanced terrain (walls as green-
+    edged boxes, translucent water), object meshes per type, agents as
+    emissive capsules with billboard `Label3D` names; per-snapshot
+    rebuild of objects, create/move/remove of agents with positional
+    interpolation toward snapshot targets; screen-space agent picking
+    (no physics on the client).
+  - `scripts/free_cam.gd`: fly camera (WASD/QE, RMB-drag look, wheel
+    speed) with follow mode (camera orbits the picked agent, Esc/LMB
+    releases).
+  - `scripts/main.gd`: connection state machine (create world → poll
+    state at 5 Hz + events since_id), Matrix-dark environment (fog,
+    ambient green, clear color), event-log HUD, first-frame camera
+    framing, `FLOOD_SMOKE` self-test mode (connect → first live snapshot
+    with agents → print + quit, 25 s timeout).
+  - `tests/smoke.gd`: headless SceneTree test — compiles all scripts,
+    builds terrain/objects/agents from a canned snapshot, applies a
+    second snapshot (move/despawn/spawn/pickup), drives interpolation to
+    completion, asserts the scene graph.
+
+### Verification
+- Backend: pytest **79 passed** (11 new API/host tests, isolated app per
+  test). New regression test for the autostart path — an autostarted
+  world ticks on its own (asyncio loop) and DELETE stops it cleanly.
+- Godot headless: `--import` clean; `tests/smoke.gd` → **SMOKE OK**
+  (terrain instance counts, agent create/move/remove, pickup rebuild,
+  interpolation reaches snapshot target). First run failed with the lerp
+  only 16% complete after one frame — correct client behavior, wrong
+  test expectation; the test now drives a full-weight frame.
+- E2E: live uvicorn + headless client (`FLOOD_SMOKE=1 FLOOD_SEED=e2e`) →
+  **FLOOD_SMOKE OK world=15 tick=2 agents=3**: the client created a real
+  world over HTTP, rendered its live snapshot, quit clean. Live API then
+  showed tick 71, 3 agents, 33 objects, and 100+ persisted ACTION
+  events — engine → bus → recorder → database → API, end to end.
+- Bug the E2E caught (tests couldn't): `create_world` was a sync route,
+  so FastAPI ran it in a worker thread and `asyncio.create_task` died
+  with "no running event loop" — 500 to the client. All pytest worlds
+  used autostart=False, which skips that path. Route is now async and
+  the autostart path has test coverage.
+- Roadmap S06B checklist: connects and renders real state ✅ (E2E);
+  free-fly camera + follow-cam implemented, interactive feel is yours to
+  confirm when you open it ✅; world truth server-side ✅ (client only
+  creates and polls — it never mutates state).
+- Roadmap S06B checklist: fully green.
+
+### Commits
+- (this commit) — S06B: 3D world client — Simulation API, Godot client, E2E smoke

@@ -436,6 +436,26 @@ class World:
     # Serialization and display
     # ------------------------------------------------------------------
 
+    def snapshot(self) -> dict:
+        """Client-facing state: everything needed to render the world,
+        nothing else (no events, no bookkeeping ids)."""
+        return {
+            "seed": self.seed,
+            "width": self.width,
+            "height": self.height,
+            "tick": self.tick,
+            "terrain": ["".join(t.char for t in row) for row in self.terrain],
+            "objects": [
+                {"id": obj.id, "type": obj.type, "position": obj.position.to_dict()}
+                for obj in self.objects
+                if obj.position is not None
+            ],
+            "entities": {
+                str(actor_id): pos.to_dict()
+                for actor_id, pos in sorted(self._entities.items())
+            },
+        }
+
     def to_dict(self) -> dict:
         return {
             "seed": self.seed,
