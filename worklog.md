@@ -579,4 +579,4 @@ client-side prediction (interpolation only), world persistence/reconnect
 - Roadmap S06B checklist: fully green.
 
 ### Commits
-- (this commit) — S06B: 3D world client — Simulation API, Godot client, E2E smoke
+- `6c94755` — S06B: 3D world client — Simulation API, Godot client, E2E smoke [pushed]
