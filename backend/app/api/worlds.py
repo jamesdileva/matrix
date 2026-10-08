@@ -136,6 +136,33 @@ async def delete_world(world_id: int, request: Request) -> dict:
     return {"id": world_id, "stopped": True}
 
 
+@router.get("/worlds/{world_id}/agents")
+def list_agents(world_id: int, request: Request) -> dict:
+    """S13: the world's live population.
+
+    Identity, lineage and status straight from the engine — the
+    dashboard's population stats panel (generation, active agents)
+    reads this. Detail like memory and knowledge are the agent
+    inspector's (S14).
+    """
+    host = _host(request, world_id)
+    agents = [
+        {
+            "id": agent.agent_id,
+            "generation": agent.generation,
+            "parent_id": agent.parent_id,
+            "population_id": agent.population_id,
+            "status": agent.status,
+            "position": agent.position.to_dict() if agent.position else None,
+            "goal": agent.goal,
+            "policy": "model" if hasattr(agent.policy, "refresh") else "scripted",
+            "knowledge": len(agent.knowledge),
+        }
+        for agent in host.engine.agents
+    ]
+    return {"world_id": world_id, "agents": agents}
+
+
 @router.post("/worlds/{world_id}/births", status_code=201)
 def create_birth(world_id: int, payload: BirthRequest, request: Request) -> dict:
     """S09: one agent reproduces.

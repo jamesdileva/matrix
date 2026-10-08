@@ -20,13 +20,19 @@ cd backend && .venv/Scripts/python -m uvicorn app.main:app --reload --port 8000
 #   health check: curl http://127.0.0.1:8000/api/health
 ```
 
-## Web console
+## Web console (S01 → S13 dashboard)
 
 ```bash
 cd frontend && npm install          # first time / after deps change
 cd frontend && npm run dev          # http://localhost:5173 — /api proxied to :8000
 cd frontend && npm run build        # typecheck + production build
+cd frontend && npm run preview      # serve the built console (proxies /api too)
 ```
+
+The dashboard watches live worlds: viewport from state snapshots,
+population stats (generation, active agents, model vs scripted minds),
+the event stream, and pause/resume/step controls. Create scripted or
+`brains: "model"` worlds from the sidebar.
 
 ## Godot world client
 

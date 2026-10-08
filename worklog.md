@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S13 — Observer Dashboard (React console over the Simulation API)
-- Completed sprints: S01–S12, S06B (S12 done 2026-10-08)
+- **Next sprint:** S14 — Agent Inspector
+- Completed sprints: S01–S13, S06B (S13 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -1172,3 +1172,79 @@ beyond checkpoints, multi-lineage stress (branching populations).
 
 ### Commits
 - `39f3fb2` — S12: 10,000-generation stress test — event retention, checkpoints, resume, batched recorder, row-major placement [pushed]
+
+## S13 � Observer Dashboard (in progress)
+
+### Plan (2026-10-08)
+The Void has been watchable through curl since S06B and through the
+Godot client since S06B; this sprint gives the human the web console
+the architecture always promised � a dashboard over the Simulation API
+that polls real backend events. Panels stay web (roadmap): a world
+viewport rendered from the state snapshot, population stats
+(generation, active agents), the event stream, and pause/resume/step
+controls. The 3D experience stays Godot (D001); the viewport panel
+links to launching it.
+
+### Scope (2026-10-08)
+In: `GET /api/worlds/{id}/agents` (the live population: identity,
+generation, parent, status, position, policy kind — what the stats
+panel needs); the React console rebuilt as the dashboard (world list
++ create, viewport canvas from snapshots, population stats, color-
+coded event stream via since_id polling, pause/resume/step controls);
+a poll-based api client; typecheck + production build green; live
+verification against a running backend.
+Out: WebSocket push (S06B deliberately deferred it; polling at 1-2 Hz
+is the console's refresh for now), the agent inspector (S14), the
+lineage explorer/replay timeline (S15+), Godot web export (the
+client stays a desktop app per D001), auth.
+
+### Implementation
+- Backend: `GET /api/worlds/{id}/agents` — the live engine's
+  population (id, generation, parent, status, position, goal, policy
+  kind, knowledge count). The route reads the engine directly; detail
+  like memory is the agent inspector's (S14).
+- Frontend, grown from S01's health console (same Matrix-dark theme,
+  still dependency-free beyond React — no UI kit):
+  - `api.ts`: typed client over the Simulation API (health, worlds,
+    create, state, agents, events with `since_id`, pause/resume/step,
+    stop).
+  - `WorldDashboard.tsx`: polls state + agents at 1 Hz and events at
+    2 Hz, tracking `since_id`; resets cleanly when the selected world
+    changes or is stopped.
+  - `WorldViewport.tsx`: canvas grid drawn from the engine's
+    render-ready `snapshot()` (terrain chars → colors, objects,
+    entities) — the web-side eye, with the Godot client linked for the
+    3D view (D001: world truth stays server-side).
+  - `PopulationStats.tsx`: active agents, generation spread, model vs
+    scripted minds, deepest lineage.
+  - `EventStream.tsx`: newest-first, color-coded by event family
+    (decision/error/message/born/action), per-event summaries,
+    auto-scroll that holds when the human scrolls up.
+  - `Controls.tsx`: pause/resume/step/stop mapped to the API routes.
+- `vite.config.ts`: `vite preview` does **not** inherit
+  `server.proxy`, so the same `/api` proxy is declared for preview
+  too — watching the built dashboard in a browser works either way.
+  (Found live: the built app served fine but every API call 500'd
+  against an unreachable proxy target.)
+
+### Verification
+- Tests: pytest **219 passed** (4 new: the agents feed's shape,
+  model-world policy kind, births appearing in the feed, 404 for
+  unknown worlds).
+- `npm run build` green (`tsc --noEmit` + production build).
+- Live, end to end through the exact path the browser uses (backend
+  on :8000, `vite preview` on :5173 proxying `/api`):
+  - created a scripted world via the proxy → world 33, 3 agents;
+  - state feed: tick advancing (0 → 17 within seconds) — real
+    backend events, not fixtures;
+  - agents feed: 3 agents, generation 0;
+  - events feed: real ACTION_EXECUTED events streaming;
+  - controls: pause froze the tick (215 → 215), manual step advanced
+    it (215 → 216) while paused, resume let it climb again.
+- Roadmap S13 checklist: a simulation started and confirmed to update
+  from real backend events ✅ (the polling feeds verified live; the
+  visual pass in your browser is the remaining human step — `npm run
+  dev` or the built console via `npm run preview`).
+
+### Commits
+- (pending — not yet committed at time of writing)
