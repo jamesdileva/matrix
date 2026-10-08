@@ -1171,4 +1171,4 @@ beyond checkpoints, multi-lineage stress (branching populations).
   this is the mock-scale proof the roadmap asked for.
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `39f3fb2` — S12: 10,000-generation stress test — event retention, checkpoints, resume, batched recorder, row-major placement [pushed]
