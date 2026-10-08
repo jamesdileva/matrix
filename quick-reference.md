@@ -76,6 +76,22 @@ curl -s -X POST localhost:8000/api/worlds/1/step   # advance one tick
 curl -s -X POST localhost:8000/api/worlds/1/pause  # /resume · DELETE removes
 ```
 
+## Model providers (S07+)
+
+```bash
+# .env (copy from .env.example): mock | openai | ollama | openai_compatible
+FLOOD_MODEL_PROVIDER=mock          # default: deterministic, no network
+FLOOD_MODEL_NAME=                  # e.g. gpt-4o-mini, llama3.1
+FLOOD_MODEL_BASE_URL=              # required for openai_compatible
+FLOOD_MODEL_API_KEY=               # never recorded on experiments
+```
+
+`mock` runs the full provider → parser → decision path offline
+(tests, headless worlds). The OpenAI-compatible provider also covers
+Ollama (`http://127.0.0.1:11434/v1`) — they differ only by base_url.
+Construction lives in `app/models/config.py`; the bridge between
+providers and agents is `ModelPolicy` (`app/simulation/model_policy.py`).
+
 ## Database (S02+)
 
 ```bash

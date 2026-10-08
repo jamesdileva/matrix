@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S07 — Model Provider Abstraction
-- Completed sprints: S01–S06, S06B (2026-09-28)
+- **Next sprint:** S08 — First LLM Agent
+- Completed sprints: S01–S07, S06B (S07 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -580,3 +580,105 @@ client-side prediction (interpolation only), world persistence/reconnect
 
 ### Commits
 - `6c94755` — S06B: 3D world client — Simulation API, Godot client, E2E smoke [pushed]
+
+## S07 — Model Provider Abstraction (2026-10-08)
+
+### Plan
+Connect intelligence without coupling the simulation to one provider.
+The world engine is done and inhabited by scripted minds; before an LLM
+ever enters the Void, the seam it plugs into must exist, be safe, and be
+provable offline. This sprint builds that seam: the provider interface,
+the structured decision contract between a brain and the world, an
+offline mock, one HTTP provider for real models, and the configuration
+recorded with every experiment — so S08 can swap a brain in without
+touching the engine.
+
+### Scope
+In: `app/models/` package — `ModelProvider` protocol (`async generate`,
+guide §8) with `ModelRequest`/`ModelResponse` and one uniform
+`ProviderError`; `Decision` schema + `parse_decision` (structure only —
+the world stays the authority on rules); `MockProvider` (deterministic,
+no network); `OpenAICompatibleProvider` (chat-completions over httpx,
+configurable `base_url`, covers OpenAI-style APIs and Ollama alike,
+transport injectable for tests); provider factory + `model_configuration`
+from settings; `ModelPolicy` bridge (async refresh / sync decide with a
+safe `look` fallback); `FLOOD_MODEL_*` settings;
+`ExperimentRepository.create` stamping the model configuration onto
+experiment rows. Tests for all of it, including the roadmap's four
+verification items.
+Out: the live decision loop / cognition scheduler wiring into the tick
+(S08), agent short memory, real model calls from a running world, the
+Google/Anthropic-native SDKs (the OpenAI-compatible shape is the
+common denominator; native providers arrive when a model actually needs
+one).
+
+### Implementation
+- `backend/app/models/` — the abstraction, dependency-free (imports
+  nothing from the engine or the database):
+  - `provider.py`: protocol + request/response dataclasses +
+    `ProviderError`. Async by design; every failure mode is one
+    exception so callers can treat "the brain said nothing" uniformly.
+  - `decision.py`: `Decision` + `parse_decision`. Extracts JSON from
+    raw model text (strips markdown fences and surrounding prose),
+    validates structure, normalizes guide §7's `{"type": ...}` verb
+    spelling to the engine's `{"action": ...}` contract, drops
+    wrongly-typed optional annotation fields, ignores unknown keys.
+    Structural rejection only — unknown verbs and illegal moves are
+    the world's job (rejected actions with recorded events).
+  - `mock.py`: `MockProvider` — forager-style heuristic, deterministic,
+    emits engine-contract JSON. Runs the full provider → parser →
+    decision path with zero I/O.
+  - `openai_compat.py`: `OpenAICompatibleProvider` — POSTs
+    chat-completions with the observation as the user message and a
+    default system prompt describing the decision contract. Network,
+    HTTP, timeout and malformed-body failures all become
+    `ProviderError`.
+  - `config.py`: `provider_from_settings` (the single place provider
+    choice is interpreted) and `model_configuration` — the effective,
+    JSON-safe, credential-free record stamped onto experiments.
+- `backend/app/simulation/model_policy.py` — `ModelPolicy`: the
+  sync/async bridge. `refresh` (awaited by the loop owner — the S08
+  host; tests today) stores the provider's validated decision;
+  `decide` returns it, or the safe `look` fallback when nothing valid
+  is stored. A broken brain can cost a rejected or idle action, never
+  world state. The one stateful policy — transport, not memory;
+  determinism holds iff the provider is deterministic (hence replay
+  records decisions, guide §"replay").
+- Settings: `FLOOD_MODEL_PROVIDER` (`mock` default — the simulation
+  runs with no LLM, guide §8), `FLOOD_MODEL_NAME`, `FLOOD_MODEL_BASE_URL`,
+  `FLOOD_MODEL_API_KEY`, `FLOOD_MODEL_TEMPERATURE`, `FLOOD_MODEL_MAX_TOKENS`,
+  `FLOOD_MODEL_TIMEOUT_S`; `.env.example` updated.
+- `ExperimentRepository.create` (`app/persistence/repositories.py`)
+  stamps `model_configuration()` by default.
+
+### Verification
+- Tests: pytest **133 passed** (54 new: decision parsing incl. both
+  verb shapes and every rejection reason; mock offline + determinism;
+  OpenAI-compatible post/parse/error-mapping via `httpx.MockTransport`
+  — no network touched; factory + configuration secrets hygiene;
+  experiment recording; ModelPolicy fallback paths and live-world
+  safety runs). The pre-existing suite (79) untouched and green.
+- Roadmap S07 checklist:
+  - Mock model works with no network ✅ (deterministic, exercised
+    through the full parse path).
+  - Provider errors do not corrupt world state ✅ (exploding/garbage
+    providers driven 10 ticks in a live world: agent never moves,
+    objects and inventory unchanged, exactly one legal `look`
+    ACTION_EXECUTED event per tick, last_error recorded).
+  - Invalid model output is rejected ✅ (prose, arrays, missing
+    action, non-object action, empty/non-string verb — each rejected
+    with a machine-readable reason; optional wrong-typed fields
+    dropped, not fatal).
+  - Model configuration is recorded with experiment ✅
+    (`ExperimentRepository` stamps the effective config; JSON-serialized
+    output asserted free of the API key).
+  - End goal — swap brains without changing the world engine ✅ (the
+    engine, Agent and World are untouched; providers are constructed
+    in one factory function).
+- E2E unchanged: live uvicorn + headless Godot client →
+  **FLOOD_SMOKE OK world=17 tick=2 agents=3**; the live world kept
+  ticking (tick 91+) with persisted ACTION events — engine → bus →
+  recorder → database → API. Client headless test `SMOKE OK`.
+
+### Commits
+- (pending — not yet committed at time of writing)

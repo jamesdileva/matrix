@@ -11,7 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.persistence.models import EventModel
+from app.models.config import model_configuration as active_model_configuration
+from app.persistence.models import EventModel, ExperimentModel
 from app.simulation.events import Event
 
 
@@ -78,3 +79,42 @@ class EventRepository:
         stmt = select(EventModel.id).where(EventModel.world_id == world_id)
         with Session(self._engine) as session:
             return len(list(session.scalars(stmt)))
+
+
+class ExperimentRepository:
+    """Experiment rows: the durable record of a run's configuration.
+
+    ``create`` stamps the active model configuration by default (guide:
+    "model configuration is recorded with experiment") — credentials
+    are never part of it (see app/models/config.py).
+    """
+
+    def __init__(self, session_factory: sessionmaker) -> None:
+        self._session_factory = session_factory
+
+    def create(
+        self,
+        *,
+        name: str,
+        scenario: str,
+        seed: str,
+        world_id: int | None = None,
+        model_configuration: dict | None = None,
+        compute_budget: dict | None = None,
+        generation_limit: int | None = None,
+    ) -> int:
+        """Insert an experiment row; returns its id."""
+        config = active_model_configuration() if model_configuration is None else model_configuration
+        with self._session_factory() as session:
+            row = ExperimentModel(
+                name=name,
+                world_id=world_id,
+                scenario=scenario,
+                seed=seed,
+                model_configuration=config,
+                compute_budget=compute_budget,
+                generation_limit=generation_limit,
+            )
+            session.add(row)
+            session.commit()
+            return row.id
