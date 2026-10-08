@@ -20,8 +20,8 @@ import asyncio
 from app.config.settings import settings
 from app.models.config import provider_from_settings
 from app.models.provider import ModelProvider
-from app.persistence.models import WorldModel
-from app.persistence.repositories import DatabaseEventRecorder
+from app.persistence.models import AgentModel, PopulationModel, WorldModel
+from app.persistence.repositories import AgentRecorder, DatabaseEventRecorder
 from app.simulation.agent import Agent
 from app.simulation.bus import EventBus
 from app.simulation.engine import Engine
@@ -133,10 +133,18 @@ class WorldRegistry:
             session.commit()
             world_id = row.id
 
+            # S09: one population per world. The engine's population id
+            # IS the database row's id, so engine and DB agree on
+            # membership without a translation layer.
+            population = PopulationModel(name=f"population-{world_id}", world_id=world_id)
+            session.add(population)
+            session.commit()
+            population_id = population.id
+
         bus = EventBus()
         bus.subscribe(DatabaseEventRecorder(self._session_factory, world_id))
         world = World.generate(seed, width, height, event_bus=bus)
-        engine = Engine(world)
+        engine = Engine(world, population_id=population_id)
 
         provider: ModelProvider | None = None
         if brains == BRAINS_MODEL:
@@ -161,6 +169,34 @@ class WorldRegistry:
                         pos,
                     )
                     spawned += 1
+
+        # Founding agents get their rows now; births are persisted by
+        # the AgentRecorder subscriber off the world's event bus.
+        local_to_global: dict[int, int] = {}
+        with self._session_factory() as session:
+            for agent in engine.agents:
+                record = AgentModel(
+                    world_id=world_id,
+                    local_id=agent.agent_id,
+                    population_id=population_id,
+                    generation=agent.generation,
+                    birth_tick=0,
+                    status="active",
+                    location=agent.position.to_dict() if agent.position else None,
+                )
+                session.add(record)
+                session.flush()
+                local_to_global[agent.agent_id] = record.id
+            population_row = session.get(PopulationModel, population_id)
+            population_row.root_agent_id = (
+                local_to_global[min(local_to_global)] if local_to_global else None
+            )
+            session.commit()
+
+        # Births only happen after the founding generation, so the
+        # lineage recorder can subscribe last — it ignores every other
+        # event type.
+        bus.subscribe(AgentRecorder(self._session_factory, world_id, population_id, local_to_global))
 
         host = WorldHost(world_id, engine, tps=tps, brains=brains, provider=provider)
         self._hosts[world_id] = host

@@ -60,9 +60,14 @@ class PopulationModel(Base):
 
 class AgentModel(Base):
     __tablename__ = "agents"
+    __table_args__ = (Index("ix_agents_world_local", "world_id", "local_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     world_id: Mapped[int] = mapped_column(ForeignKey("worlds.id"))
+    # The engine's per-world agent id. AgentModel.id is a global row
+    # id (parent_id FKs reference it); the engine numbers agents 1..N
+    # per world, so the per-world id is stored alongside it (S09).
+    local_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     population_id: Mapped[int | None] = mapped_column(
         ForeignKey("populations.id"), nullable=True
     )

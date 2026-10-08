@@ -29,6 +29,9 @@ class EventTypes:
     MODEL_DECISION = "MODEL_DECISION"
     MODEL_ERROR = "MODEL_ERROR"
     AGENT_MESSAGE = "AGENT_MESSAGE"
+    # S09: lineage. Parent, child and generation are one replayable
+    # fact about the world, same as everything else.
+    AGENT_BORN = "AGENT_BORN"
 
 
 @dataclass(frozen=True)

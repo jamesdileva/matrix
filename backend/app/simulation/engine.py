@@ -19,17 +19,22 @@ from __future__ import annotations
 
 from app.simulation.actions import ActionResult
 from app.simulation.agent import Agent
+from app.simulation.errors import BirthError
 from app.simulation.events import EventTypes
+from app.simulation.policies import WanderPolicy
 from app.simulation.world import Position, World
 
 
 class Engine:
-    def __init__(self, world: World) -> None:
+    def __init__(self, world: World, population_id: int | None = None) -> None:
         self.world = world
+        self.population_id = population_id
         self._agents: dict[int, Agent] = {}
 
     def spawn_agent(self, agent: Agent, position: Position) -> None:
         agent.spawn(self.world, position)
+        if agent.population_id is None:
+            agent.population_id = self.population_id
         self._agents[agent.agent_id] = agent
 
     @property
@@ -41,6 +46,104 @@ class Engine:
     def has_model_policies(self) -> bool:
         """True when any agent's policy thinks asynchronously (S08)."""
         return any(hasattr(agent.policy, "refresh") for agent in self.agents)
+
+    def population(self, population_id: int | None = None) -> list[Agent]:
+        """Members of a population (this engine's, by default)."""
+        wanted = self.population_id if population_id is None else population_id
+        return [a for a in self.agents if a.population_id == wanted]
+
+    def _next_agent_id(self) -> int:
+        return max(self._agents, default=0) + 1
+
+    def create_child(
+        self,
+        parent_id: int,
+        *,
+        policy=None,
+        position: Position | None = None,
+        message: str | None = None,
+    ) -> Agent:
+        """Reproduce: one parent, one child, one linked lineage (S09).
+
+        The child inherits (guide §10, "start with parent -> child
+        message"): the parent's goal, and a seeded memory entry
+        carrying the parent's message. What *mind* the child gets is
+        the caller's decision — the default is the simplest scripted
+        one, and live worlds pass a fresh policy (a new ModelPolicy
+        for model brains; a policy holds one agent's in-flight
+        decision, never shared).
+
+        Placement is deterministic: the first free floor cell adjacent
+        to the parent in N → E → S → W order, or an explicit position.
+        No room raises `BirthError`; nothing is half-applied.
+        """
+        parent = self._agents.get(parent_id)
+        if parent is None:
+            raise ValueError(f"unknown parent agent {parent_id!r}")
+        if parent.status != "alive":
+            raise BirthError(f"parent {parent_id} is not alive")
+
+        child_position = position if position is not None else self._free_adjacent(parent)
+        if child_position is None:
+            raise BirthError(f"no free cell adjacent to agent {parent_id}")
+
+        child = Agent(
+            agent_id=self._next_agent_id(),
+            policy=policy if policy is not None else WanderPolicy(),
+            parent_id=parent.agent_id,
+            generation=parent.generation + 1,
+            population_id=parent.population_id,
+        )
+        # Minimal inheritance package: the parent's goal is the child's
+        # starting goal, and the parent -> child message is seeded into
+        # the child's memory as its first recollection.
+        child.goal = parent.goal
+        child.memory.remember_action(
+            tick=self.world.tick,
+            action={"kind": "inheritance", "from": parent.agent_id},
+            ok=True,
+            reason=message,
+            goal=child.goal,
+        )
+        self.spawn_agent(child, child_position)
+
+        self.world._add_event(
+            EventTypes.AGENT_BORN,
+            actor_id=parent.agent_id,
+            target_id=child.agent_id,
+            payload={
+                "parent_id": parent.agent_id,
+                "child_id": child.agent_id,
+                "generation": child.generation,
+                "population_id": child.population_id,
+                "position": child_position.to_dict(),
+                "inheritance": {"goal": child.goal, "message": message},
+            },
+        )
+        return child
+
+    def ancestors(self, agent_id: int) -> list[Agent]:
+        """The lineage from the root down to `agent_id` (inclusive)."""
+        chain: list[Agent] = []
+        current = self._agents.get(agent_id)
+        while current is not None:
+            chain.append(current)
+            current = self._agents.get(current.parent_id) if current.parent_id else None
+        return list(reversed(chain))
+
+    def _free_adjacent(self, parent: Agent) -> Position | None:
+        position = parent.position
+        if position is None:  # pragma: no cover - status and registry agree
+            return None
+        for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):  # N, E, S, W
+            candidate = Position(position.x + dx, position.y + dy)
+            if (
+                self.world.is_floor(candidate)
+                and self.world.object_at(candidate) is None
+                and self.world.entity_at(candidate) is None
+            ):
+                return candidate
+        return None
 
     def step(self) -> list[ActionResult]:
         """One tick: world advances, then every agent observes-decides-acts."""

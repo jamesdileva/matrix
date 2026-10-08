@@ -52,6 +52,12 @@ class Agent:
     observation_radius: int = 2
     goal: str | None = None
     status: str = "created"  # created -> alive
+    # Lineage (S09): None for the founding generation, set by
+    # Engine.create_child for everyone after. The engine assigns
+    # these; the database persists them as global ids.
+    parent_id: int | None = None
+    generation: int = 0
+    population_id: int | None = None
     # Short memory of recent action outcomes. Agent state, like the
     # goal — folded into the observation (guide §6's precedent:
     # current_goal), because a decision that cannot see what just

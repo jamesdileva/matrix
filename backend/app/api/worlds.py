@@ -10,6 +10,9 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.host import BRAINS_MODEL, BRAINS_SCRIPTED, WorldHost
+from app.simulation.errors import BirthError
+from app.simulation.events import EventTypes
+from app.simulation.model_policy import ModelPolicy
 
 router = APIRouter(tags=["worlds"])
 
@@ -24,6 +27,11 @@ class CreateWorldRequest(BaseModel):
     # S08: which minds inhabit the world. "model" is an explicit opt-in —
     # a configured provider alone never starts a model world.
     brains: str = BRAINS_SCRIPTED
+
+
+class BirthRequest(BaseModel):
+    parent_id: int
+    message: str | None = None  # the parent -> child message (guide §10)
 
 
 def _host(request: Request, world_id: int) -> WorldHost:
@@ -123,3 +131,38 @@ async def delete_world(world_id: int, request: Request) -> dict:
     await host.stop()
     request.app.state.worlds.remove(world_id)
     return {"id": world_id, "stopped": True}
+
+
+@router.post("/worlds/{world_id}/births", status_code=201)
+def create_birth(world_id: int, payload: BirthRequest, request: Request) -> dict:
+    """S09: one agent reproduces.
+
+    The child of a model world gets a fresh ModelPolicy on the world's
+    provider; the child of a scripted world gets the default scripted
+    mind. Placement, lineage and the AGENT_BORN event are the engine's
+    job (Engine.create_child).
+    """
+    host = _host(request, world_id)
+    policy = ModelPolicy(host.provider) if host.provider is not None else None
+    try:
+        child = host.engine.create_child(
+            payload.parent_id, policy=policy, message=payload.message
+        )
+    except ValueError as exc:  # unknown parent
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except BirthError as exc:  # no room for the child
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    born = next(
+        e
+        for e in reversed(host.engine.world.events)
+        if e.type == EventTypes.AGENT_BORN and e.target_id == child.agent_id
+    )
+    return {
+        "id": child.agent_id,
+        "parent_id": child.parent_id,
+        "generation": child.generation,
+        "population_id": child.population_id,
+        "position": child.position.to_dict(),
+        "inheritance": born.payload["inheritance"],
+    }

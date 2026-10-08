@@ -74,6 +74,14 @@ curl -s localhost:8000/api/worlds/1                # state snapshot
 curl -s "localhost:8000/api/worlds/1/events?since_id=0&limit=50"
 curl -s -X POST localhost:8000/api/worlds/1/step   # advance one tick
 curl -s -X POST localhost:8000/api/worlds/1/pause  # /resume · DELETE removes
+
+# births (S09): one agent reproduces — child placed adjacent,
+# lineage + parent→child message recorded as an AGENT_BORN event
+curl -s -X POST localhost:8000/api/worlds/1/births \
+     -H "Content-Type: application/json" \
+     -d '{"parent_id": 1, "message": "go east"}'
+#   201: {"id": 2, "parent_id": 1, "generation": 1, ...}
+#   409: no free cell adjacent to the parent
 ```
 
 ## Model providers (S07+)

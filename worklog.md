@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S09 — Birth & Generation
-- Completed sprints: S01–S08, S06B (S08 done 2026-10-08)
+- **Next sprint:** S10 — Inheritance
+- Completed sprints: S01–S09, S06B (S09 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -783,4 +783,95 @@ layer); streaming, multi-model populations (guide §26), native SDKs.
 
 ### Commits
 - `169ffce` — S08: first LLM agent — model-aware tick loop, short memory, decision events, brains opt-in [pushed]
+
+## S09 — Birth & Generation (in progress)
+
+### Plan (2026-10-08)
+Agents can now think; none can yet continue. This sprint implements
+reproduction at the mechanism level: `create_child(parent)` (guide §10)
+with lineage fields, a deterministic birth position, the minimal
+parent → child inheritance package the guide prescribes, an `AGENT_BORN`
+event on the timeline, and population membership persisted to the
+database. The roadmap's verification is a sequential chain —
+0 → 1 → 2 → … → 100 with every parent/child link and generation number
+checked — so births are driven by `Engine.create_child` (engine-pure,
+testable) and by an API route (`POST /worlds/{id}/births`) that makes
+reproduction observable in a live world.
+
+### Scope (2026-10-08)
+In: `parent_id`/`generation`/`population_id` on the engine `Agent`;
+`Engine.create_child` with deterministic adjacent-cell placement
+(N → E → S → W first free floor) and `BirthError` when there is no
+room; minimal inheritance — the child's goal is the parent's, and the
+parent → child message is seeded into the child's short memory
+(guide §10: "start with parent -> child message"); `AGENT_BORN` event
+carrying parent/child/generation/position/inheritance;
+`PopulationModel` + `AgentModel` persistence (new `AgentModel.local_id`
+column + migration, engine-pure ids are per-world, DB ids are global);
+`AgentRecorder` bus subscriber translating births into agent rows;
+`AgentRepository` lineage queries; `POST /worlds/{id}/births` route;
+the 0 → 100 chain verification (engine and database).
+Out (S10+): real genetics / trait inheritance (S10 — Inheritance),
+model-decision-driven birth intent and birth rejections as rejected
+actions, population branching rules and capacity limits, death and
+generational turnover, experiments-layer birth policies.
+
+### Implementation
+- Engine (pure, no DB): `Agent` carries `parent_id`/`generation`/
+  `population_id`. `Engine.create_child(parent)` (guide §10's
+  `create_child(parent)`) picks the first free floor cell adjacent to
+  the parent in N → E → S → W order (or an explicit position), spawns
+  the child with the next per-world id, and records one `AGENT_BORN`
+  event with the full lineage payload. No room raises `BirthError`;
+  nothing is half-applied. `ancestors()` walks a lineage to the root;
+  `population()` lists a population's members.
+- Minimal inheritance, exactly as the guide prescribes: the child's
+  goal starts as the parent's, and the parent → child message is
+  seeded into the child's short memory as its first recollection.
+  Genetics and trait inheritance are S10.
+- Persistence: engine ids are per-world while `AgentModel.id` is
+  global (parent_id FKs reference it), so `AgentModel.local_id` plus
+  an index and migration `a1c9e2f47b03` keep both identities. The
+  registry writes one `PopulationModel` row per world (the row id IS
+  the engine's population id) and `AgentModel` rows for the founding
+  agents; `AgentRecorder` — a bus subscriber like the event recorder —
+  persists every birth, keeping the local → global mapping so the
+  next birth can link its parent's global id. `AgentRepository.
+  lineage()` renders the chain as (local id, parent local id,
+  generation) rows — the roadmap verification's readable form.
+- API: `POST /worlds/{id}/births` — 201 with the child and its
+  inheritance, 400 for an unknown parent, 409 when there is no room.
+  A model world's child gets a fresh `ModelPolicy` on the world's
+  provider; a scripted world's child gets the default scripted mind.
+- What mind a child gets is the caller's decision, not the engine's:
+  decision-driven birth intent (and birth rejections as rejected
+  actions) is deliberately left for after inheritance exists (S10).
+
+### Verification
+- Tests: pytest **175 passed** (20 new: lineage fields, birth event
+  payload, inheritance package, explicit position/policy, dead and
+  unknown parents, boxed-in `BirthError` with nothing half-applied,
+  population membership, the 0 → 1 → … → **100** chain with every
+  generation and parent link checked, `ancestors`, founding-row
+  persistence, births through the API and into the database, the
+  409-when-boxed-in path, model-world children thinking, and the
+  10-generation chain verified through `AgentRepository.lineage`).
+- Roadmap S09 checklist: sequential lineage 0 → 1 → … → 100 with
+  every parent/child relationship and generation number verified ✅
+  (in-engine for 100 generations, in-database for 10 through the
+  API — the recursive check is the same one).
+- Live: world 22 (scripted) — three `POST .../births` calls produced
+  the chain 1 → 2 → 3 → 4, generations 0-3, one population, each
+  birth carrying its parent → child message; the 4-agent world kept
+  ticking afterwards.
+- E2E unchanged: headless Godot client → **FLOOD_SMOKE OK
+  world=23 tick=2 agents=3**; client headless test `SMOKE OK`.
+- Regression the suite caught: subscribing the event recorder after
+  world generation (my reordering) silently stopped persisting
+  WORLD_SEEDED/OBJECT_CREATED events — the S06B test failed, the
+  recorder is subscribed first again, with the lineage recorder last
+  (it only ever sees AGENT_BORN).
+
+### Commits
+- (pending — not yet committed at time of writing)
 

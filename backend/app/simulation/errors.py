@@ -11,3 +11,7 @@ class InvalidPositionError(SimulationError):
 
 class CellOccupiedError(SimulationError):
     """A cell already holds an object."""
+
+
+class BirthError(SimulationError):
+    """A birth cannot happen (no free cell for the child)."""

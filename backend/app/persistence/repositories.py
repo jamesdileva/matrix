@@ -12,8 +12,8 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.config import model_configuration as active_model_configuration
-from app.persistence.models import EventModel, ExperimentModel
-from app.simulation.events import Event
+from app.persistence.models import AgentModel, EventModel, ExperimentModel, PopulationModel
+from app.simulation.events import Event, EventTypes
 
 
 class DatabaseEventRecorder:
@@ -118,3 +118,83 @@ class ExperimentRepository:
             session.add(row)
             session.commit()
             return row.id
+
+
+class AgentRecorder:
+    """EventBus subscriber that persists lineage to the agents table (S09).
+
+    Engine agent ids are per-world; ``AgentModel.id`` is a global row id
+    (that is what ``parent_id`` FKs reference). The recorder keeps the
+    local -> global mapping for one world, seeded by the registry with
+    the founding agents and extended by every birth it sees.
+
+    Only ``AGENT_BORN`` matters here — action and decision events are
+    ``DatabaseEventRecorder``'s job.
+    """
+
+    def __init__(self, session_factory, world_id: int, population_id: int | None, local_to_global: dict) -> None:
+        self._session_factory = session_factory
+        self._world_id = world_id
+        self._population_id = population_id
+        self._local_to_global = dict(local_to_global)
+
+    def __call__(self, event: Event) -> None:
+        if event.type != EventTypes.AGENT_BORN:
+            return
+        payload = event.payload
+        parent_global = self._local_to_global.get(payload["parent_id"])
+        if parent_global is None:  # parent outside this world's recorded agents
+            return
+        with self._session_factory() as session:
+            row = AgentModel(
+                world_id=self._world_id,
+                local_id=payload["child_id"],
+                population_id=payload.get("population_id") or self._population_id,
+                parent_id=parent_global,
+                generation=payload["generation"],
+                birth_tick=event.tick,
+                status="active",
+                location=payload.get("position"),
+            )
+            session.add(row)
+            session.flush()  # assigns the global id the parent of the next birth will need
+            self._local_to_global[payload["child_id"]] = row.id
+            session.commit()
+
+
+class AgentRepository:
+    """Lineage queries: who descends from whom, and from which generation."""
+
+    def __init__(self, session_factory) -> None:
+        self._session_factory = session_factory
+
+    def for_world(self, world_id: int) -> list[AgentModel]:
+        """All recorded agents of a world, in creation order."""
+        stmt = (
+            select(AgentModel)
+            .where(AgentModel.world_id == world_id)
+            .order_by(AgentModel.id)
+        )
+        with self._session_factory() as session:
+            return list(session.scalars(stmt))
+
+    def lineage(self, world_id: int) -> list[dict]:
+        """One entry per recorded agent: local id, parent's local id, generation.
+
+        The chain's verifiable form — this is what the roadmap's
+        0 -> 1 -> ... -> 100 check reads.
+        """
+        rows = self.for_world(world_id)
+        by_global = {row.id: row for row in rows}
+        return [
+            {
+                "local_id": row.local_id,
+                "parent_local_id": (
+                    by_global[row.parent_id].local_id
+                    if row.parent_id is not None and row.parent_id in by_global
+                    else None
+                ),
+                "generation": row.generation,
+            }
+            for row in rows
+        ]
