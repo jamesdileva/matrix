@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S11 — 100-Generation Lineage Experiment
-- Completed sprints: S01–S10, S06B (S10 done 2026-10-08)
+- **Next sprint:** S12 — 10,000-Generation Stress Test
+- Completed sprints: S01–S11, S06B (S11 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -963,3 +963,95 @@ generational turnover, population branching rules.
 
 ### Commits
 - `d918bdd` — S10: inheritance — package (traits, knowledge, message, artifacts), parent intent, child state, persistence [pushed]
+
+## S11 � 100-Generation Lineage Experiment (in progress)
+
+### Plan (2026-10-08)
+The first serious experiment (guide �11 / roadmap S11): a founder
+receives 10 controlled facts, creates Agent 1, each child decides what
+to pass onward, for 100 generations � measuring information drift.
+S10 built the transmission mechanism; this sprint wraps it in a
+repeatable runner with the roadmap's six measures (retained, lost,
+altered, new facts, message length, semantic similarity), a replay
+path that rebuilds the lineage from persisted events alone (replay
+never re-calls a model), and JSON export of results.
+
+### Scope (2026-10-08)
+In: `app/experiments/` — the lineage runner (founder with the
+controlled knowledge set, deterministic per-generation intent
+extraction, `create_child` chain), scripted policies that produce
+known transmission phenomena for calibration (full retention, lossy,
+altering, negating, new-fact policies) and a model mode driven by
+`ModelPolicy` refresh; per-generation + final metrics (exact retention,
+loss, alteration, additions, contradictions via a documented negation
+heuristic, token-Jaccard similarity, message lengths); an
+`ExperimentModel` row recording the run (configuration + the original
+fact set, status created → running → completed); replay from the
+events table; JSON export; a `python -m app.experiments` CLI.
+Out: semantic-similarity via embeddings (lexical Jaccard until an
+embedding provider exists — `nomic-embed-text` is a later option),
+automatic contradiction *detection* beyond the negation heuristic,
+experiment scheduling/dashboards (S13+), statistical aggregation
+across experiment runs, knowledge acquisition during life.
+
+### Implementation
+- `backend/app/experiments/lineage.py` — the experiment:
+  - **Runner** (`run_lineage_experiment`): wires a world row, a
+    population, a flat engine, a founder carrying the 10-fact
+    controlled set, and the DB rows/subscribers — then drives 100
+    generations of `Engine.create_child`. One *experiment mind*
+    decides every generation's transmission against the current
+    parent's observation (the lineage's agents are genetic carriers;
+    calibration counters advance once per generation, not per agent).
+  - **Scripted calibrations**: full retention (the control), and
+    drift-producing policies (lossy staircase, re-wording, negating,
+    new-fact) so metrics are checked against ground truth.
+  - **Metrics** (roadmap S11): retained / lost / altered / new facts,
+    contradictions (guide §11's negation heuristic — a transmitted
+    fact whose tokens are an original's plus a negation token),
+    message lengths, and best-match token-Jaccard similarity as the
+    deterministic semantic proxy. Per generation and final.
+  - **ExperimentModel** row per run: status created → running →
+    completed, the original fact set and configuration recorded with
+    it (guide: configuration is recorded with the experiment).
+  - **Replay** (`replay_lineage_experiment`): the lineage rebuilt from
+    persisted AGENT_BORN events and the experiment row alone — no
+    engine, no model calls (guide §"replay").
+  - **Export/CLI**: JSON export (`export_report`) and
+    `python -m app.experiments --mode full|lossy|altering|negating|new|model`.
+- The OpenAI-compatible provider's default system prompt now teaches
+  the decision contract's `inheritance` field, so a real model knows
+  it is authoring its child's culture.
+
+### Verification
+- Tests: pytest **202 passed** (13 new: control retains 10/10 with
+  similarity 1.0; every generation exists (101 agent rows,
+  generations 0-100); experiment row completes with timestamps and the
+  fact set; model mode runs 25 generations through the refresh path
+  with a stub provider; lossy staircase (10/10 lost, retention 10→9→0);
+  altering (10 altered, 0 contradicted); negating (10 contradictions);
+  new facts (10 new on top of 10 retained); message lengths measured;
+  replay rebuilds the 25-generation chain from events; export writes
+  valid JSON; unknown experiment/mode rejected).
+- Roadmap S11 checklist:
+  - Experiment completes without manual intervention ✅ (CLI run:
+    experiment 1, 100/100 generations, no interaction).
+  - Every generation exists ✅ (agent rows 0..100 + one AGENT_BORN
+    event per generation).
+  - Metrics are generated ✅ (all six roadmap measures in the report).
+  - Experiment can be replayed ✅ (replay from events, no model).
+  - Results can be exported ✅ (JSON round-trip verified; the live
+    run exported to disk).
+- **Live control run** (dev DB, `--mode full --seed control-1`):
+  100 generations, 10/10 retained, 0 lost, similarity 1.0, exported.
+- **Live model run** (`--mode model`, qwen2.5:7b-instruct via
+  Ollama, seed `llm-run-1`): reached **generation 15 of 100** before
+  being interrupted — Ollama was contended by other projects at the
+  time, and the run is slow (one model call per generation). The
+  partial run persisted correctly (world 27: 16 agents, 15 births,
+  experiment row marked `aborted`) and is replayable; the full
+  100-generation model run is to be repeated when Ollama is free.
+  Control + calibration paths are fully verified meanwhile.
+
+### Commits
+- (pending — not yet committed at time of writing)

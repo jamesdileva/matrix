@@ -34,9 +34,14 @@ DEFAULT_SYSTEM_PROMPT = (
     "from the observation. Reply with JSON only, in this shape: "
     '{"action": {"action": "move|look|inspect|pick_up|drop|place", '
     '"direction": "north|south|east|west"}, '
-    '"goal_update": string|null, "thought_summary": string|null}. '
+    '"goal_update": string|null, "thought_summary": string|null, '
+    '"message": string|null, '
+    '"inheritance": {"traits": {}, "knowledge": [string], '
+    '"message": string|null, "cultural_artifacts": []}} '
     "The world validates every action; an illegal action is rejected "
-    "and never changes the world."
+    "and never changes the world. The observation includes the "
+    "knowledge you inherited at birth; the inheritance field is what "
+    "you intend to pass to your next child — decide it deliberately."
 )
 
 

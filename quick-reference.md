@@ -126,6 +126,24 @@ the backend. `phi4-mini` is the speed-first alternative; qwen3.x
 defaults to slow "thinking" mode and is not recommended for the live
 loop.
 
+## Lineage experiment (S11+)
+
+```bash
+cd backend
+.venv/Scripts/python -m app.experiments                          # control: full retention, 100 generations
+.venv/Scripts/python -m app.experiments --mode lossy             # calibrations: lossy|altering|negating|new
+.venv/Scripts/python -m app.experiments --mode model --seed r1   # live ModelPolicy from FLOOD_MODEL_* (preload the model!)
+.venv/Scripts/python -m app.experiments --export out.json        # JSON report
+
+# replays from persisted events alone (no model calls):
+#   app.experiments.replay_lineage_experiment(SessionLocal, experiment_id)
+```
+
+Measures retained/lost/altered/new facts, contradictions, message
+lengths, and token-Jaccard similarity per generation. `--mode model`
+takes ~1 model call per generation (100 calls for the full run) —
+preload the Ollama model first; a contended Ollama makes it slow.
+
 ## Database (S02+)
 
 ```bash
