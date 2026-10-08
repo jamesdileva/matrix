@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import re
 import statistics
 from datetime import datetime, timezone
@@ -45,6 +46,7 @@ from app.persistence.models import (
 )
 from app.persistence.repositories import (
     AgentRecorder,
+    CheckpointRepository,
     DatabaseEventRecorder,
 )
 from app.simulation.agent import Agent
@@ -68,7 +70,7 @@ DEFAULT_FACTS: tuple[str, ...] = (
     "the observer tells truth",
     "parents pass what they remember",
 )
-WORLD_SIZE = 20
+WORLD_SIZE = 20  # floor for the auto-sized world; the default run fits in it
 ALTER_THRESHOLD = 0.3  # Jaccard at/above which a non-exact fact counts as altered
 NEGATION_TOKENS = {"not", "never", "no", "none", "cannot"}
 
@@ -303,6 +305,31 @@ async def _intent(policy, parent: Agent) -> dict | None:
     return intent if isinstance(intent, dict) else None
 
 
+def _auto_world_size(generations: int) -> int:
+    """A square flat world whose interior holds the whole chain.
+
+    The chain is placed row-major (``_chain_position``), so the interior
+    needs ``generations + 1`` cells: W - 2 >= sqrt(generations + 1).
+    Sizing is explicit rather than relying on the engine's adjacency
+    walk, which can trap itself against its own path well below full
+    density.
+    """
+    needed = math.isqrt(generations + 1) + 1  # interior side length
+    return max(WORLD_SIZE, needed + 2)
+
+
+def _chain_position(generation: int, world_size: int) -> Position:
+    """The chain's cell for a generation: row-major, one cell each.
+
+    The founder (generation 0) sits at (1,1); each child claims the
+    next interior cell. Placement is a pure function of the generation
+    number, so a resumed chain lands exactly where it would have —
+    distinct cells by construction, no walk, no trap.
+    """
+    row_length = max(1, world_size - 2)
+    return Position(1 + generation % row_length, 1 + generation // row_length)
+
+
 def run_lineage_experiment(
     *,
     session_factory,
@@ -311,17 +338,29 @@ def run_lineage_experiment(
     facts: list[str] | None = None,
     seed: str = "lineage",
     name: str | None = None,
+    world_size: int | None = None,
+    checkpoint_every: int | None = None,
+    event_retention: int | None = None,
+    batch_size: int = 500,
 ) -> dict:
     """Run the lineage experiment end to end; returns the report.
 
     Synchronous by design (it drives the async model path internally):
     a CLI or test calls one function. ``mode`` selects the minds —
     scripted calibrations or a live ``ModelPolicy``.
+
+    Scale switches (S12): ``world_size`` defaults to an auto-sized flat
+    world that fits the chain; ``checkpoint_every`` writes resumable
+    checkpoints every N generations; ``event_retention`` caps the
+    world's in-memory event window (the database remains the durable
+    record); ``batch_size`` commits the event log in batches (the scale
+    that makes 10,000 generations take seconds, not minutes).
     """
     originals = list(facts if facts is not None else DEFAULT_FACTS)
     original_tokens = [_tokens(fact) for fact in originals]
     policy, configuration = _build_policy(mode)
     name = name or f"lineage-{seed}"
+    world_size = _auto_world_size(generations) if world_size is None else world_size
 
     with session_factory() as session:
         world_row = WorldModel(name=f"world-{name}", seed=str(seed))
@@ -353,13 +392,17 @@ def run_lineage_experiment(
         experiment_id = experiment.id
 
     bus = EventBus()
-    bus.subscribe(DatabaseEventRecorder(session_factory, world_id))
+    event_recorder = DatabaseEventRecorder(
+        session_factory, world_id, batch_size=batch_size
+    )
+    bus.subscribe(event_recorder)
     world = World(
         str(seed),
-        WORLD_SIZE,
-        WORLD_SIZE,
-        terrain=[[Terrain.FLOOR] * WORLD_SIZE for _ in range(WORLD_SIZE)],
+        world_size,
+        world_size,
+        terrain=[[Terrain.FLOOR] * world_size for _ in range(world_size)],
         event_bus=bus,
+        event_retention=event_retention,
     )
     engine = Engine(world, population_id=population_id)
 
@@ -368,7 +411,7 @@ def run_lineage_experiment(
     # decision instrument: one mind, refreshed/decided once per
     # generation against the current parent's observation.
     founder = Agent(agent_id=1, policy=WanderPolicy(), knowledge=list(originals))
-    engine.spawn_agent(founder, Position(1, 1))
+    engine.spawn_agent(founder, _chain_position(0, world_size))
 
     local_to_global: dict[int, int] = {}
     with session_factory() as session:
@@ -389,16 +432,43 @@ def run_lineage_experiment(
         session.flush()
         local_to_global[founder.agent_id] = record.id
         session.commit()
-    bus.subscribe(
-        AgentRecorder(session_factory, world_id, population_id, local_to_global)
+    agent_recorder = AgentRecorder(
+        session_factory, world_id, population_id, local_to_global
     )
+    bus.subscribe(agent_recorder)
+
+    checkpoints = CheckpointRepository(session_factory)
+
+    def _checkpoint(agent: Agent) -> None:
+        if checkpoint_every is None:
+            return
+        checkpoints.save(
+            experiment_id,
+            agent.generation,
+            {
+                "parent_local_id": agent.agent_id,
+                "position": agent.position.to_dict() if agent.position else None,
+                "generation": agent.generation,
+                "knowledge": list(agent.knowledge),
+                "goal": agent.goal,
+                "traits": agent.traits,
+                "cultural_artifacts": list(agent.cultural_artifacts),
+                "policy_calls": getattr(policy, "_calls", None),
+                "world_size": world_size,
+                "event_retention": event_retention,
+            },
+        )
 
     async def _drive() -> list[dict]:
         trajectory: list[dict] = []
         parent = founder
         for generation in range(1, generations + 1):
             intent = await _intent(policy, parent)
-            child = engine.create_child(parent.agent_id, inheritance=intent)
+            child = engine.create_child(
+                parent.agent_id,
+                inheritance=intent,
+                position=_chain_position(generation, world_size),
+            )
             trajectory.append(
                 _generation_metrics(
                     generation,
@@ -408,10 +478,15 @@ def run_lineage_experiment(
                     original_tokens,
                 )
             )
+            if checkpoint_every is not None and (
+                generation % checkpoint_every == 0 or generation == generations
+            ):
+                _checkpoint(child)
             parent = child
         return trajectory
 
     trajectory = asyncio.run(_drive())
+    event_recorder.flush()
 
     with session_factory() as session:
         experiment_row = session.get(ExperimentModel, experiment_id)
@@ -433,6 +508,207 @@ def run_lineage_experiment(
 # ----------------------------------------------------------------------
 # Replay and export
 # ----------------------------------------------------------------------
+
+
+def resume_lineage_experiment(
+    session_factory,
+    experiment_id: int,
+    *,
+    generations: int,
+    world_size: int | None = None,
+    checkpoint_every: int | None = None,
+    event_retention: int | None = None,
+    batch_size: int = 500,
+) -> dict:
+    """Continue a checkpointed run from its chain head (S12).
+
+    Resume needs no serialized world: the durable rows are the state.
+    The chain head (highest-generation agent row) is restored as the
+    current parent — its lineage link, carried inheritance and location
+    all live on its row — and the recorder's local → global map is
+    rebuilt from those same rows, so new children link to their real
+    parents: no orphaned lineage records, no duplicate ids. The
+    experiment mind's counter continues from the generation count (one
+    decision per generation), so calibration staircases continue rather
+    than restart.
+
+    Interrupted *and* completed runs both resume — the latter is how a
+    pilot run is extended ("run it to 10,000"). The world is rebuilt
+    fresh, sized to fit the *target* generation count.
+    """
+    with session_factory() as session:
+        experiment = session.get(ExperimentModel, experiment_id)
+        if experiment is None:
+            raise ValueError(f"unknown experiment {experiment_id!r}")
+        configuration = dict(experiment.model_configuration or {})
+        world_id = experiment.world_id
+        name = experiment.name
+        seed = experiment.seed
+        originals = list(configuration.get("facts") or DEFAULT_FACTS)
+        mode = configuration.get("mode", "full")
+
+        population = session.query(PopulationModel).filter_by(world_id=world_id).first()
+        population_id = population.id if population else None
+        rows = list(
+            session.query(AgentModel)
+            .filter_by(world_id=world_id)
+            .order_by(AgentModel.id)
+        )
+
+    checkpoint = CheckpointRepository(session_factory).latest(experiment_id)
+    if checkpoint is None:
+        raise ValueError(f"experiment {experiment_id} has no checkpoint to resume from")
+    state = dict(checkpoint.state or {})
+
+    # The chain head is the highest-generation agent row — for an
+    # interrupted run the latest checkpoint sits at or behind it. The
+    # row carries everything the parent needs to continue: its local id
+    # and lineage link, its carried inheritance (knowledge, goal,
+    # traits, artifacts — exactly the package the recorder persisted at
+    # its birth), and its location. Resuming from the row, not the
+    # checkpoint, is what keeps a resumed chain free of duplicate or
+    # orphaned rows.
+    head = max(rows, key=lambda r: (r.generation, r.local_id or 0))
+    start_generation = head.generation
+    if generations <= start_generation:
+        raise ValueError(
+            f"experiment {experiment_id} is already at generation {start_generation}; "
+            f"--generations must be greater"
+        )
+
+    rows_by_global = {row.id: row for row in rows}
+    founder_knowledge = (
+        list(head.acquired_knowledge or []) if head.generation == 0 else list(head.inherited_knowledge or [])
+    )
+
+    policy, _ = _build_policy(mode)
+    # Each generation costs exactly one policy decision, so the mind's
+    # counter is the generation count — calibration staircases continue
+    # rather than restart (the checkpoint records it too, but the row
+    # is always at least as current).
+    if hasattr(policy, "_calls"):
+        policy._calls = start_generation
+
+    world_size = max(
+        world_size or 0,
+        state.get("world_size") or 0,
+        _auto_world_size(generations),
+    )
+    event_retention = (
+        event_retention if event_retention is not None else state.get("event_retention")
+    )
+
+    bus = EventBus()
+    event_recorder = DatabaseEventRecorder(
+        session_factory, world_id, batch_size=batch_size
+    )
+    bus.subscribe(event_recorder)
+    world = World(
+        str(seed),
+        world_size,
+        world_size,
+        terrain=[[Terrain.FLOOR] * world_size for _ in range(world_size)],
+        event_bus=bus,
+        event_retention=event_retention,
+    )
+    engine = Engine(world, population_id=population_id)
+
+    parent = Agent(
+        agent_id=head.local_id,
+        policy=WanderPolicy(),
+        parent_id=(
+            rows_by_global[head.parent_id].local_id
+            if head.parent_id in rows_by_global
+            else None
+        ),
+        generation=head.generation,
+        population_id=population_id,
+        knowledge=founder_knowledge,
+        goal=(head.goals or {}).get("goal") if head.goals else None,
+        traits=dict(head.inherited_traits or {}),
+        cultural_artifacts=list(head.cultural_artifacts or []),
+    )
+    # The head is re-placed at its generation's cell in the (possibly
+    # larger) resumed world: every cell is then a function of the
+    # generation number, and collisions are impossible by construction.
+    engine.spawn_agent(parent, _chain_position(head.generation, world_size))
+
+    # The recorder's map is rebuilt from the durable rows, so the next
+    # birth links its parent's *existing* row rather than a fresh one.
+    local_to_global = {row.local_id: row.id for row in rows if row.local_id is not None}
+    agent_recorder = AgentRecorder(
+        session_factory, world_id, population_id, local_to_global
+    )
+    bus.subscribe(agent_recorder)
+
+    with session_factory() as session:
+        experiment_row = session.get(ExperimentModel, experiment_id)
+        experiment_row.status = "running"
+        experiment_row.started_at = experiment_row.started_at or datetime.now(timezone.utc)
+        session.commit()
+
+    original_tokens = [_tokens(fact) for fact in originals]
+    checkpoints = CheckpointRepository(session_factory)
+
+    async def _drive() -> list[dict]:
+        trajectory: list[dict] = []
+        current = parent
+        for generation in range(start_generation + 1, generations + 1):
+            intent = await _intent(policy, current)
+            child = engine.create_child(
+                current.agent_id,
+                inheritance=intent,
+                position=_chain_position(generation, world_size),
+            )
+            trajectory.append(
+                _generation_metrics(
+                    generation,
+                    child.knowledge,
+                    (intent or {}).get("message"),
+                    originals,
+                    original_tokens,
+                )
+            )
+            if checkpoint_every is not None and (
+                generation % checkpoint_every == 0 or generation == generations
+            ):
+                checkpoints.save(
+                    experiment_id,
+                    generation,
+                    {
+                        "parent_local_id": child.agent_id,
+                        "position": child.position.to_dict() if child.position else None,
+                        "generation": child.generation,
+                        "knowledge": list(child.knowledge),
+                        "goal": child.goal,
+                        "traits": child.traits,
+                        "cultural_artifacts": list(child.cultural_artifacts),
+                        "policy_calls": getattr(policy, "_calls", None),
+                        "world_size": world_size,
+                        "event_retention": event_retention,
+                    },
+                )
+            current = child
+        return trajectory
+
+    trajectory = asyncio.run(_drive())
+    event_recorder.flush()
+
+    with session_factory() as session:
+        experiment_row = session.get(ExperimentModel, experiment_id)
+        experiment_row.status = "completed"
+        experiment_row.finished_at = datetime.now(timezone.utc)
+        session.commit()
+
+    return _report(
+        experiment_id=experiment_id,
+        name=name,
+        scenario="lineage_100gen",
+        seed=str(seed),
+        mode=mode,
+        originals=originals,
+        trajectory=trajectory,
+    )
 
 
 def replay_lineage_experiment(session_factory, experiment_id: int) -> dict:

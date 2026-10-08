@@ -11,6 +11,7 @@ from app.experiments.lineage import (
     export_report,
     print_summary,
     replay_lineage_experiment,
+    resume_lineage_experiment,
     run_lineage_experiment,
 )
 
@@ -20,5 +21,6 @@ __all__ = [
     "export_report",
     "print_summary",
     "replay_lineage_experiment",
+    "resume_lineage_experiment",
     "run_lineage_experiment",
 ]

@@ -135,6 +135,10 @@ cd backend
 .venv/Scripts/python -m app.experiments --mode model --seed r1   # live ModelPolicy from FLOOD_MODEL_* (preload the model!)
 .venv/Scripts/python -m app.experiments --export out.json        # JSON report
 
+# S12 scale switches (mock minds; 10k generations takes ~50s)
+.venv/Scripts/python -m app.experiments --generations 10000 --checkpoint-every 1000 --retention 500
+.venv/Scripts/python -m app.experiments --resume 6 --generations 10000   # continue from the chain head
+
 # replays from persisted events alone (no model calls):
 #   app.experiments.replay_lineage_experiment(SessionLocal, experiment_id)
 ```

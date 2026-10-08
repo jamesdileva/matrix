@@ -12,35 +12,76 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.config import model_configuration as active_model_configuration
-from app.persistence.models import AgentModel, EventModel, ExperimentModel, PopulationModel
+from app.persistence.models import (
+    AgentModel,
+    CheckpointModel,
+    EventModel,
+    ExperimentModel,
+    PopulationModel,
+)
 from app.simulation.events import Event, EventTypes
 
 
 class DatabaseEventRecorder:
     """EventBus subscriber that persists one world's events to the database.
 
-    Each event commits in its own short-lived session — simple and safe at
-    current scale; batching belongs to the S12 retention/perf sprint.
+    Each event commits in its own short-lived session by default —
+    simple and safe at current scale, and what live watched worlds want
+    (the database is their durable archive).
+
+    ``batch_size > 1`` is the scale switch (S12): events buffer in
+    memory and commit in one transaction per batch. No session is held
+    between events — SQLite would lock out concurrent writers
+    (checkpoints, agent rows). Callers that batch must ``flush()``; the
+    experiment runner does, and a hard crash loses at most one batch.
     """
 
-    def __init__(self, session_factory: sessionmaker, world_id: int) -> None:
+    def __init__(
+        self,
+        session_factory: sessionmaker,
+        world_id: int,
+        *,
+        batch_size: int = 1,
+    ) -> None:
+        if batch_size < 1:
+            raise ValueError(f"batch_size must be >= 1, got {batch_size}")
         self._session_factory = session_factory
         self._world_id = world_id
+        self._batch_size = batch_size
+        self._buffer: list[EventModel] = []
 
     def __call__(self, event: Event) -> None:
+        if self._batch_size == 1:
+            with self._session_factory() as session:
+                session.add(self._to_model(event))
+                session.commit()
+            return
+        self._buffer.append(self._to_model(event))
+        if len(self._buffer) >= self._batch_size:
+            self._commit_buffer()
+
+    def flush(self) -> None:
+        """Commit whatever is buffered."""
+        self._commit_buffer()
+
+    def _commit_buffer(self) -> None:
+        if not self._buffer:
+            return
+        rows, self._buffer = self._buffer, []
         with self._session_factory() as session:
-            session.add(
-                EventModel(
-                    world_id=self._world_id,
-                    sequence=event.id,
-                    tick=event.tick,
-                    type=event.type,
-                    actor_id=event.actor_id,
-                    target_id=event.target_id,
-                    payload=event.payload,
-                )
-            )
+            session.add_all(rows)
             session.commit()
+
+    def _to_model(self, event: Event) -> EventModel:
+        return EventModel(
+            world_id=self._world_id,
+            sequence=event.id,
+            tick=event.tick,
+            type=event.type,
+            actor_id=event.actor_id,
+            target_id=event.target_id,
+            payload=event.payload,
+        )
 
 
 class EventRepository:
@@ -130,6 +171,10 @@ class AgentRecorder:
 
     Only ``AGENT_BORN`` matters here — action and decision events are
     ``DatabaseEventRecorder``'s job.
+
+    Each birth commits in its own short session: the next birth's parent
+    is this child, so its global id must exist immediately — a held
+    transaction would lock out concurrent writers for no gain.
     """
 
     def __init__(self, session_factory, world_id: int, population_id: int | None, local_to_global: dict) -> None:
@@ -171,6 +216,44 @@ class AgentRecorder:
             session.flush()  # assigns the global id the parent of the next birth will need
             self._local_to_global[payload["child_id"]] = row.id
             session.commit()
+
+
+class CheckpointRepository:
+    """Checkpoint rows: the resumable snapshots of a run (S12)."""
+
+    def __init__(self, session_factory) -> None:
+        self._session_factory = session_factory
+
+    def save(self, experiment_id: int, generation: int, state: dict) -> int:
+        """Write one checkpoint; returns its id."""
+        with self._session_factory() as session:
+            row = CheckpointModel(
+                experiment_id=experiment_id, generation=generation, state=state
+            )
+            session.add(row)
+            session.commit()
+            return row.id
+
+    def latest(self, experiment_id: int) -> CheckpointModel | None:
+        """The highest-generation checkpoint of a run, if any."""
+        stmt = (
+            select(CheckpointModel)
+            .where(CheckpointModel.experiment_id == experiment_id)
+            .order_by(CheckpointModel.generation.desc(), CheckpointModel.id.desc())
+            .limit(1)
+        )
+        with self._session_factory() as session:
+            return session.scalars(stmt).first()
+
+    def for_experiment(self, experiment_id: int) -> list[CheckpointModel]:
+        """All checkpoints of a run, oldest first."""
+        stmt = (
+            select(CheckpointModel)
+            .where(CheckpointModel.experiment_id == experiment_id)
+            .order_by(CheckpointModel.generation, CheckpointModel.id)
+        )
+        with self._session_factory() as session:
+            return list(session.scalars(stmt))
 
 
 class AgentRepository:

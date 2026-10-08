@@ -147,3 +147,28 @@ class ExperimentModel(Base):
     )
 
     world: Mapped["WorldModel | None"] = relationship(back_populates="experiments")
+    checkpoints: Mapped[list["CheckpointModel"]] = relationship(back_populates="experiment")
+
+
+class CheckpointModel(Base):
+    """A resumable snapshot of a run's transmission state (S12).
+
+    Deliberately *not* a world serialization (S03's ``World.to_dict``
+    is that): a checkpoint holds exactly what continuing a lineage
+    needs — who the current parent is, where, what it carries, and how
+    far its decision mind has counted. Small enough to write every N
+    generations without slowing the run.
+    """
+
+    __tablename__ = "checkpoints"
+    __table_args__ = (Index("ix_checkpoints_experiment_generation", "experiment_id", "generation"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    experiment_id: Mapped[int] = mapped_column(ForeignKey("experiments.id"))
+    generation: Mapped[int] = mapped_column(default=0)
+    state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+    experiment: Mapped["ExperimentModel"] = relationship(back_populates="checkpoints")

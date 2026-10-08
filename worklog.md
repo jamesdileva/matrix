@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S12 — 10,000-Generation Stress Test
-- Completed sprints: S01–S11, S06B (S11 done 2026-10-08)
+- **Next sprint:** S13 — Observer Dashboard (React console over the Simulation API)
+- Completed sprints: S01–S12, S06B (S12 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -1072,3 +1072,103 @@ across experiment runs, knowledge acquisition during life.
 
 ### Commits
 - `47463d6` — S11: 100-generation lineage experiment — runner, calibration policies, metrics, replay, export, CLI [pushed]
+
+## S12 � 10,000-Generation Stress Test (in progress)
+
+### Plan (2026-10-08)
+The project's signature scale is 10,000 generations (roadmap S12).
+S11 proved the mechanism at 100 with a real model; this sprint proves
+the architecture survives 10,000 at mock speed � with the machinery
+that scale demands: a bounded in-memory event log (retention policy),
+checkpoints, and experiment resume. All scripted: no model calls, so
+minutes, not the ~13 hours a model-driven run would cost.
+
+### Scope (2026-10-08)
+In: event retention on the world (opt-in; the durable record stays
+the database — watched live worlds keep every event by default);
+checkpoints (a `checkpoints` table: the transmission state needed to
+continue a lineage — parent, position, knowledge, counter — not a full
+world serialization, which S03's to_dict already is); experiment
+resume (restore the parent and the recorder's local→global map from
+the database, continue the chain); the S11 runner parameterized
+(world size, checkpoint cadence, retention, batch size); a
+10,000-generation stress test verifying: no generation gaps, no
+orphaned lineage records, checkpoint/resume works, memory bounded
+(event log capped, per-agent memory capped), database queryable
+afterwards; CLI flags.
+Out: replaying 10k generations through the API (dashboard concern,
+S13+), event-log compaction/deletion from the database (only the
+in-memory window is capped), world serialization of mid-run state
+beyond checkpoints, multi-lineage stress (branching populations).
+
+### Implementation
+- **Lightweight agent lifecycle**: unchanged by design — agents are
+  pure dataclasses and the engine holds no DB objects; the stress test
+  proves the shape holds at 10,000 (10,001 agents, each with bounded
+  16-entry memory).
+- **Event retention policy** (`World.event_retention`): when set, the
+  in-memory event list keeps only the most recent N events; sequence
+  ids keep advancing, so client `since_id` windows stay coherent
+  within the retained range. Bus subscribers still see everything,
+  and the database remains the durable record. Live watched worlds
+  keep the default (None) because clients stream the full timeline.
+- **Snapshot strategy**: checkpoints are the experiment's snapshot —
+  the transmission state needed to continue (parent, position,
+  knowledge, goal, traits, artifacts, the mind's counter), written
+  every N generations *and at the end of every run*. A full world
+  serialization already exists (S03 `World.to_dict`); for lineage
+  continuity it would be dead weight.
+- **Checkpointing** (`checkpoints` table + `CheckpointRepository`):
+  migration `c5d8e1b2049f`, indexed by (experiment, generation).
+- **Experiment resume** (`resume_lineage_experiment`): the chain *head*
+  — the highest-generation agent row — is restored as the current
+  parent, its lineage link and carried inheritance read straight off
+  its row (the recorder persisted the package at its birth), and the
+  recorder's local → global map is rebuilt from the same rows so new
+  children link to their real parents. Interrupted and completed
+  runs both resume — the latter is how a pilot is extended ("run it
+  to 10,000"). Resuming from the row (not the checkpoint) is what
+  keeps the chain free of duplicate or orphaned ids.
+- **Runner scale switches**: auto-sized world (interior fits the
+  chain), row-major placement by generation (one distinct cell each,
+  so the walk can never trap itself — the engine's adjacency walk
+  demonstrably self-traps at some start positions), event retention,
+  event-recorder batching (in-memory buffer, one transaction per
+  batch, flushed at run end — no session held between events, so
+  SQLite never locks out concurrent writers). The agent recorder
+  still commits per birth by necessity: the next birth's parent is
+  this child, so its global id must exist immediately.
+- CLI: `--checkpoint-every`, `--retention`, `--resume ID`.
+
+### Verification
+- Tests: pytest **215 passed** (13 new: the 10,000-generation run
+  itself with a wall-clock budget; no generation gaps (contiguous
+  0..N in the DB); no orphaned lineage records (every parent row
+  exists, exactly one founder); bounded memory (the retained-event
+  window's footprint stops growing after the cap while 10,000 more
+  events flow); retention caps the in-memory window with ids still
+  advancing; database queryable afterwards (event counts, filtered
+  queries, lineage); checkpoints on cadence; resume continues a
+  chain from its head (contiguous 0..800 in the DB, no orphans,
+  no duplicate ids); resume restores a calibration staircase
+  (lossy drops continue rather than restart); resume extends a
+  completed pilot; the no-checkpoint, unknown-experiment and
+  already-at-target errors).
+- Roadmap S12 checklist:
+  - Run a small-model/mock version to 10,000 generations ✅ (test +
+    live CLI run).
+  - No generation gaps ✅. No orphaned lineage records ✅.
+  - Checkpoint/resume works ✅ (unit + live on the dev DB: a 40-gen
+    run resumed to 80 leaves exactly 81 contiguous rows).
+  - Memory usage remains bounded ✅ (event window capped; per-agent
+    memory capped).
+  - Database remains queryable ✅ (repositories answer correctly
+    after the run).
+- Live stress run (dev DB, `--generations 10000 --checkpoint-every
+  1000 --retention 500`): **10,000 generations in 47 seconds**, 10/10
+  retained, 10 checkpoints, exported. For comparison, the same scale
+  with a model per generation would be ~13 hours of Ollama time —
+  this is the mock-scale proof the roadmap asked for.
+
+### Commits
+- (pending — not yet committed at time of writing)

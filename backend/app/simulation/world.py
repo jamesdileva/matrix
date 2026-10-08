@@ -121,6 +121,7 @@ class World:
         events: list[Event] | None = None,
         next_event_id: int | None = None,
         event_bus: EventBus | None = None,
+        event_retention: int | None = None,
     ):
         if not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0:
             raise ValueError(f"dimensions must be positive integers, got {width}x{height}")
@@ -156,6 +157,13 @@ class World:
             else (max((e.id for e in self._events), default=0) + 1)
         )
         self._event_bus = event_bus
+        # Event retention policy (S12): when set, only the most recent N
+        # events stay in memory — older ones live in the database (bus
+        # subscribers still see everything). Sequence ids keep
+        # advancing, so a client's `since_id` window stays coherent
+        # within the retained range. Default None: watched live worlds
+        # keep every event, because clients stream them.
+        self.event_retention = event_retention
 
     # ------------------------------------------------------------------
     # Generation
@@ -423,6 +431,8 @@ class World:
         )
         self._next_event_id += 1
         self._events.append(event)
+        if self.event_retention is not None and len(self._events) > self.event_retention:
+            del self._events[: len(self._events) - self.event_retention]
         if self._event_bus is not None:
             self._event_bus.publish(event)
         return event
