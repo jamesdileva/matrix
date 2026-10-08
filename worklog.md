@@ -1054,4 +1054,4 @@ across experiment runs, knowledge acquisition during life.
   Control + calibration paths are fully verified meanwhile.
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `47463d6` — S11: 100-generation lineage experiment — runner, calibration policies, metrics, replay, export, CLI [pushed]
