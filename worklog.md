@@ -873,5 +873,5 @@ generational turnover, experiments-layer birth policies.
   (it only ever sees AGENT_BORN).
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `378542c` — S09: birth & generation — create_child, lineage fields, AGENT_BORN events, population persistence, births API [pushed]
 
