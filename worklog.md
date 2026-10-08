@@ -1045,13 +1045,30 @@ across experiment runs, knowledge acquisition during life.
 - **Live control run** (dev DB, `--mode full --seed control-1`):
   100 generations, 10/10 retained, 0 lost, similarity 1.0, exported.
 - **Live model run** (`--mode model`, qwen2.5:7b-instruct via
-  Ollama, seed `llm-run-1`): reached **generation 15 of 100** before
-  being interrupted — Ollama was contended by other projects at the
-  time, and the run is slow (one model call per generation). The
-  partial run persisted correctly (world 27: 16 agents, 15 births,
-  experiment row marked `aborted`) and is replayable; the full
-  100-generation model run is to be repeated when Ollama is free.
-  Control + calibration paths are fully verified meanwhile.
+  Ollama, seed `llm-run-4`, experiment 4 / world 29, ~50 min on a
+  loaded machine): all **100 generations completed** — 100/100 births,
+  no timeouts (request timeout raised to 120 s for the contended
+  machine). Result — the first measured information drift in Flood:
+
+  | measure | value |
+  |---|---|
+  | retained facts | **6/10** (verbatim) |
+  | lost facts | 4 |
+  | altered / contradicted / new | 0 / 0 / 0 |
+  | avg similarity | 1.0 |
+  | avg message length | 0.0 (the model omits the optional field) |
+
+  The shape of the drift is the interesting part: transmission was
+  **stable at 10/10 for 85 generations, then a single transmission at
+  generation 86 dropped 4 facts at once**, and the reduced set then
+  held stable to generation 100. Episodic attrition, not gradual decay
+  — exactly the kind of result the experiment exists to surface. The
+  lost four: "the void is dark", "water blocks the walker", "walls
+  stop movement", "food restores strength".
+- Earlier live attempts (seeds `llm-run-1`, `llm-run-2`) were
+  interrupted by Ollama contention from other projects; their partial
+  runs (15 and 63 generations) persisted correctly, are replayable, and
+  their experiment rows are marked `aborted`.
 
 ### Commits
 - `47463d6` — S11: 100-generation lineage experiment — runner, calibration policies, metrics, replay, export, CLI [pushed]
