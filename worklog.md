@@ -962,4 +962,4 @@ generational turnover, population branching rules.
   world=25 tick=2 agents=3**; client headless test `SMOKE OK`.
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `d918bdd` — S10: inheritance — package (traits, knowledge, message, artifacts), parent intent, child state, persistence [pushed]
