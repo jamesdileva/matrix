@@ -1247,4 +1247,5 @@ client stays a desktop app per D001), auth.
   dev` or the built console via `npm run preview`).
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `4a6f11c` — S13: observer dashboard — populations feed, viewport/stats/event-stream/controls console, preview proxy [pushed]
+- `d3cb458` — gitignore: SQLite journal/wal artifacts (flood.db-journal committed by accident in S13) [pushed]
