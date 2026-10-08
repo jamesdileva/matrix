@@ -782,5 +782,5 @@ layer); streaming, multi-model populations (guide §26), native SDKs.
   `SMOKE OK`.
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `169ffce` — S08: first LLM agent — model-aware tick loop, short memory, decision events, brains opt-in [pushed]
 
