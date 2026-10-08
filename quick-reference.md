@@ -81,7 +81,7 @@ curl -s -X POST localhost:8000/api/worlds/1/pause  # /resume · DELETE removes
 ```bash
 # .env (copy from .env.example): mock | openai | ollama | openai_compatible
 FLOOD_MODEL_PROVIDER=mock          # default: deterministic, no network
-FLOOD_MODEL_NAME=                  # e.g. gpt-4o-mini, llama3.1
+FLOOD_MODEL_NAME=                  # e.g. gpt-4o-mini, llama3.1, qwen2.5:7b-instruct
 FLOOD_MODEL_BASE_URL=              # required for openai_compatible
 FLOOD_MODEL_API_KEY=               # never recorded on experiments
 ```
@@ -91,6 +91,27 @@ FLOOD_MODEL_API_KEY=               # never recorded on experiments
 Ollama (`http://127.0.0.1:11434/v1`) — they differ only by base_url.
 Construction lives in `app/models/config.py`; the bridge between
 providers and agents is `ModelPolicy` (`app/simulation/model_policy.py`).
+
+## LLM worlds (S08+)
+
+```bash
+# model brains are an explicit opt-in — a configured provider alone
+# never starts a model world
+curl -s -X POST localhost:8000/api/worlds -H "Content-Type: application/json" \
+     -d '{"seed": "llm", "agents": 2, "brains": "model"}'   # uses FLOOD_MODEL_*
+
+curl -s "localhost:8000/api/worlds/1/events?since_id=0&limit=50"
+#   watch MODEL_DECISION / MODEL_ERROR / AGENT_MESSAGE events
+```
+
+Ollama quickstart (local-first): `ollama pull qwen2.5:7b-instruct`,
+`ollama run qwen2.5:7b-instruct` once to **preload** it (a cold model
+load can exceed the 30 s request timeout and logs a MODEL_ERROR the
+first tick — self-healing, but preloading avoids it), then
+`FLOOD_MODEL_PROVIDER=ollama FLOOD_MODEL_NAME=qwen2.5:7b-instruct` on
+the backend. `phi4-mini` is the speed-first alternative; qwen3.x
+defaults to slow "thinking" mode and is not recommended for the live
+loop.
 
 ## Database (S02+)
 

@@ -164,7 +164,20 @@ class TestOpenAICompatibleProvider:
         provider = OpenAICompatibleProvider(
             base_url="http://model.test/v1", model="m", client=_client(handler)
         )
-        with pytest.raises(ProviderError):
+        with pytest.raises(ProviderError, match="ConnectError"):
+            asyncio.run(provider.generate(ModelRequest(observation=OBSERVATION)))
+
+    def test_timeout_becomes_provider_error_with_named_cause(self):
+        # TimeoutException stringifies to nothing; the type name is what
+        # makes the logged reason debuggable (seen for real on Ollama
+        # cold starts).
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.TimeoutException("")
+
+        provider = OpenAICompatibleProvider(
+            base_url="http://model.test/v1", model="m", client=_client(handler)
+        )
+        with pytest.raises(ProviderError, match="TimeoutException"):
             asyncio.run(provider.generate(ModelRequest(observation=OBSERVATION)))
 
     def test_malformed_body_becomes_provider_error(self):

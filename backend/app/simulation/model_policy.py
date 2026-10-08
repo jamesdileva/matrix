@@ -52,11 +52,21 @@ class ModelPolicy:
         self._fallback_action = dict(fallback_action or _FALLBACK_ACTION)
         self._decision: dict | None = None
         self._last_error: str | None = None
+        self._last_response = None
 
     @property
     def last_error(self) -> str | None:
         """Why the last refresh produced no decision, if it didn't."""
         return self._last_error
+
+    @property
+    def last_response(self):
+        """The successful ModelResponse behind the stored decision, if any.
+
+        Read by the engine to record provider/model provenance on
+        MODEL_DECISION events (S08); None after a failed refresh.
+        """
+        return self._last_response
 
     async def refresh(self, observation: dict) -> dict | None:
         """Ask the provider for a decision on this observation.
@@ -74,6 +84,7 @@ class ModelPolicy:
             response = await self.provider.generate(request)
         except ProviderError as exc:
             self._decision = None
+            self._last_response = None
             self._last_error = f"provider_error: {exc}"
             return None
 
@@ -81,10 +92,12 @@ class ModelPolicy:
             decision = parse_decision(response.text)
         except DecisionError as exc:
             self._decision = None
+            self._last_response = None
             self._last_error = f"invalid_decision: {exc.reason}: {exc}"
             return None
 
         self._decision = decision.as_dict()
+        self._last_response = response
         self._last_error = None
         return dict(self._decision)
 

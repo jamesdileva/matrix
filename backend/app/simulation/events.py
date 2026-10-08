@@ -23,6 +23,12 @@ class EventTypes:
     ENTITY_REMOVED = "ENTITY_REMOVED"
     ACTION_EXECUTED = "ACTION_EXECUTED"
     ACTION_REJECTED = "ACTION_REJECTED"
+    # S08: model minds speak through the same timeline as everything
+    # else, so a decision, its failure, and an utterance are all
+    # replayable facts about the world.
+    MODEL_DECISION = "MODEL_DECISION"
+    MODEL_ERROR = "MODEL_ERROR"
+    AGENT_MESSAGE = "AGENT_MESSAGE"
 
 
 @dataclass(frozen=True)

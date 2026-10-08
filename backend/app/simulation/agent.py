@@ -7,9 +7,16 @@ distinguishes one agent from another is its policy: a function from
 observation to a decision. Scripted policies today; model-driven
 decisions in S08 through the same contract.
 
-Policies must be stateless functions of the observation. Memory,
-personality and history arrive with real cognition (S08+) — until then,
-determinism of the whole simulation rests on decisions being pure.
+Scripted policies must be stateless functions of the observation —
+determinism of the whole simulation rests on decisions being pure. Model
+policies (S08) cannot be pure (an LLM is not deterministic); they are
+confined to ``ModelPolicy``, which is fed asynchronously and stores a
+snapshot, and the world re-validates every action they propose, so a
+surprising brain costs a rejected action, never corruption.
+
+An agent's own state — goal and short memory — rides along inside the
+observation (guide §6's precedent: current_goal), because a decision
+that cannot see what just happened cannot learn from it.
 """
 
 from __future__ import annotations
@@ -18,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from app.simulation.actions import DIRECTIONS, ActionResult
+from app.simulation.memory import AgentMemory
 from app.simulation.world import Position, World
 
 
@@ -44,6 +52,11 @@ class Agent:
     observation_radius: int = 2
     goal: str | None = None
     status: str = "created"  # created -> alive
+    # Short memory of recent action outcomes. Agent state, like the
+    # goal — folded into the observation (guide §6's precedent:
+    # current_goal), because a decision that cannot see what just
+    # happened cannot learn from it.
+    memory: AgentMemory = field(default_factory=AgentMemory)
     _world: World | None = field(default=None, repr=False, compare=False)
 
     def spawn(self, world: World, position: Position) -> None:
@@ -125,6 +138,7 @@ class Agent:
             "cells": cells,
             "nearby": nearby,
             "inventory": list(world.inventory(self.agent_id)),
+            "memory": self.memory.recent(),
             "messages": [],  # communication arrives in later sprints
         }
 
@@ -136,6 +150,8 @@ class Agent:
 
         The world still decides everything — a broken or illegal decision
         comes back as a rejected ActionResult and the agent lives on.
+        The outcome (and the goal it was pursuing) is remembered, so the
+        next decision can see what just happened.
         """
         decision = self.decide()
         if not isinstance(decision, dict):
@@ -144,4 +160,12 @@ class Agent:
         if goal_update is not None:
             self.goal = goal_update
         action = decision.get("action")
-        return self._world.execute_action(self.agent_id, action)
+        result = self._world.execute_action(self.agent_id, action)
+        self.memory.remember_action(
+            tick=self._world.tick,
+            action=result.action,
+            ok=result.ok,
+            reason=result.reason,
+            goal=self.goal,
+        )
+        return result

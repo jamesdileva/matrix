@@ -87,7 +87,10 @@ class OpenAICompatibleProvider:
             text = data["choices"][0]["message"]["content"]
         except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
             # Transport/HTTP failures, non-JSON bodies, unexpected shape.
-            raise ProviderError(f"{self.name}: {exc}") from exc
+            # The exception type is always named: some httpx failures
+            # (timeouts above all) stringify to nothing, and an empty
+            # reason in the event log is a debugging dead end.
+            raise ProviderError(f"{self.name}: {type(exc).__name__}: {exc}") from exc
         if not isinstance(text, str):
             raise ProviderError(f"{self.name}: response content is not text")
         return ModelResponse(

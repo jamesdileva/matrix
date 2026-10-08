@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S08 — First LLM Agent
-- Completed sprints: S01–S07, S06B (S07 done 2026-10-08)
+- **Next sprint:** S09 — Birth & Generation
+- Completed sprints: S01–S08, S06B (S08 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -682,3 +682,105 @@ one).
 
 ### Commits
 - `5155b9e` — S07: model provider abstraction — providers, decision schema, ModelPolicy bridge [pushed]
+
+## S08 — First LLM Agent (2026-10-08)
+
+### Plan
+The Void is inhabited by scripted minds through a proven seam (S07).
+This sprint puts an actual language model inside: a decision loop that
+drives model agents through the live tick, short memory, and logged
+decisions and utterances — with the world proving it keeps running when
+the brain fails. Scripted agents and engine determinism stay untouched.
+
+### Scope
+In: `Engine.step_async` (world advances, then each agent refreshes its
+model policy and acts, in id order); bounded `AgentMemory` folded into
+the observation; minimal speech — a decision's `message` becomes an
+`AGENT_MESSAGE` event (logged, not yet perceived by others; delivery is
+the communication sprint); `MODEL_DECISION`/`MODEL_ERROR` events on the
+world timeline (provider, model, observation, decision, outcome);
+`POST /worlds` gains `brains: "scripted" | "model"` (model brains only
+via explicit opt-in — never auto-started by settings); driven 300-tick
+survival run (guide §9); documented local-model path (Ollama,
+`qwen2.5:7b-instruct` recommended — non-thinking, strong JSON, 4.7 GB;
+`phi4-mini` if speed outranks reliability).
+Out: cognition scheduler / think intervals / global compute budget
+(every model agent thinks every tick for now — tps is the throttle);
+reproduction/lineage (S09); message delivery to other agents
+(communication sprint); memory persistence across worlds (experiments
+layer); streaming, multi-model populations (guide §26), native SDKs.
+
+### Implementation
+- `backend/app/simulation/engine.py` — `step_async`: the model-aware
+  tick. World advances first, then each agent (ascending id, the
+  existing determinism contract) refreshes its model policy — the
+  provider is awaited *between* the world advancing and the agent
+  acting — and acts. Duck-typed `refresh` detection: scripted
+  policies take the identical pure-synchronous path as `step`
+  (parity-tested). `has_model_policies` reports whether a world needs
+  the async path at all.
+- `backend/app/simulation/memory.py` — `AgentMemory`: bounded (16)
+  ring of recent outcomes (tick, action, ok, reason, goal),
+  deep-copied in and out so observations and events never alias live
+  memory. Lives on the `Agent`, appended in `act()` after every
+  attempt, and folded into the observation (guide §6's precedent:
+  current_goal) — a decision that cannot see what just happened
+  cannot learn from it.
+- Decision/error/utterance timeline — `MODEL_DECISION` (provider,
+  model, decision, full observation incl. memory, outcome),
+  `MODEL_ERROR` (reason + the fallback action that ran) and
+  `AGENT_MESSAGE` (the utterance) events, recorded by the engine right
+  after each model agent acts. Guide §7's storage list — action,
+  rationale, observation, outcome — with the outcome of a *recorded*
+  decision; replay never re-calls the model.
+- `backend/app/host.py` — `brains` opt-in: `WorldRegistry.create`
+  validates it, builds one provider from settings shared by every
+  agent, and gives each agent its own `ModelPolicy` (a policy holds
+  one agent's in-flight decision). `WorldHost.advance_once` is the
+  model-aware step used by both the tick loop and the API's manual
+  step; the sync `step_once` is gone — nothing needed it.
+- `backend/app/api/worlds.py` — `brains` on create (400 on unknown
+  value or misconfigured provider), `brains`/`provider` in world
+  state and listings, step route is async (model worlds await inside
+  the step).
+- `backend/app/models/openai_compat.py` — `ProviderError` now always
+  names the exception type. Found live: Ollama cold starts raise a
+  timeout whose `str()` is empty, and an empty reason in the event
+  log is a debugging dead end.
+- `ModelPolicy.last_response` — provenance for the decision event.
+
+### Verification
+- Tests: pytest **155 passed** (22 new: memory bounds/eviction/alias
+  safety; scripted parity under `step` vs `step_async`; decision
+  events with provenance/outcome; utterance events; error events with
+  fallback; 300-tick survival (guide §9); memory flowing into
+  observations; mid-run provider failure injection; API brains
+  opt-in, 400s, decision events via the API and through the recorder,
+  autostarted model world ticking and stopping clean; timeout error
+  mapping).
+- Roadmap S08 checklist:
+  - Agent can observe the Void ✅ — the bounded observation (with
+    memory) is in every request and logged on every MODEL_DECISION.
+  - Agent can make a valid action ✅ — live: 9 real decisions from
+    qwen2.5:7b-instruct, all `outcome.ok=True`.
+  - Invalid model action is safely rejected ✅ — live: a cold-start
+    provider timeout on the very first call logged MODEL_ERROR, ran
+    the safe fallback, and the world continued for 4 more ticks.
+  - Model response is logged ✅ — MODEL_DECISION events persisted
+    through the recorder, queryable via the events API.
+  - Simulation remains stable after model failure ✅ — the live
+    failure above, plus 300-tick survival and mid-run failure
+    injection tests.
+- **A real LLM lived in the Void**: live uvicorn with
+  `FLOOD_MODEL_PROVIDER=ollama FLOOD_MODEL_NAME=qwen2.5:7b-instruct`,
+  `POST /worlds {"brains": "model"}` → world 18 ticked 5 times with 2
+  qwen agents; one cold-start MODEL_ERROR then 9 logged decisions
+  (incl. a model-authored `thought_summary`), memory flowing into
+  observations, all actions world-validated.
+- E2E unchanged: scripted world via headless Godot client →
+  **FLOOD_SMOKE OK world=19 tick=2 agents=3**; client headless test
+  `SMOKE OK`.
+
+### Commits
+- (pending — not yet committed at time of writing)
+
