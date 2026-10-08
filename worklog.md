@@ -681,4 +681,4 @@ one).
   recorder → database → API. Client headless test `SMOKE OK`.
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `5155b9e` — S07: model provider abstraction — providers, decision schema, ModelPolicy bridge [pushed]
