@@ -21,10 +21,12 @@ that cannot see what just happened cannot learn from it.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from typing import Protocol
 
 from app.simulation.actions import DIRECTIONS, ActionResult
+from app.simulation.inheritance import InheritancePackage
 from app.simulation.memory import AgentMemory
 from app.simulation.world import Position, World
 
@@ -58,6 +60,15 @@ class Agent:
     parent_id: int | None = None
     generation: int = 0
     population_id: int | None = None
+    # Inheritance (S10): what this agent received at birth, and what it
+    # currently intends to pass on. The intent is declared by a
+    # decision's ``inheritance`` field; create_child uses it by
+    # default. Both are deep-copied on the way in and out.
+    traits: dict = field(default_factory=dict)
+    knowledge: list = field(default_factory=list)
+    cultural_artifacts: list = field(default_factory=list)
+    inheritance_received: dict | None = None
+    pending_inheritance: dict | None = None
     # Short memory of recent action outcomes. Agent state, like the
     # goal — folded into the observation (guide §6's precedent:
     # current_goal), because a decision that cannot see what just
@@ -145,6 +156,12 @@ class Agent:
             "nearby": nearby,
             "inventory": list(world.inventory(self.agent_id)),
             "memory": self.memory.recent(),
+            # Inherited culture (S10): the agent sees what it received
+            # at birth, because deciding what to pass onward requires
+            # knowing what was passed to you (guide §11).
+            "traits": copy.deepcopy(self.traits),
+            "knowledge": list(self.knowledge),
+            "cultural_artifacts": list(self.cultural_artifacts),
             "messages": [],  # communication arrives in later sprints
         }
 
@@ -158,6 +175,10 @@ class Agent:
         comes back as a rejected ActionResult and the agent lives on.
         The outcome (and the goal it was pursuing) is remembered, so the
         next decision can see what just happened.
+
+        A decision may also declare the inheritance this agent intends to
+        pass to its next child (S10); that intent is stored and used by
+        ``Engine.create_child`` unless an explicit package is given.
         """
         decision = self.decide()
         if not isinstance(decision, dict):
@@ -165,6 +186,9 @@ class Agent:
         goal_update = decision.get("goal_update")
         if goal_update is not None:
             self.goal = goal_update
+        intent = decision.get("inheritance")
+        if isinstance(intent, dict):
+            self.pending_inheritance = copy.deepcopy(intent)
         action = decision.get("action")
         result = self._world.execute_action(self.agent_id, action)
         self.memory.remember_action(

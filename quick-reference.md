@@ -76,12 +76,17 @@ curl -s -X POST localhost:8000/api/worlds/1/step   # advance one tick
 curl -s -X POST localhost:8000/api/worlds/1/pause  # /resume · DELETE removes
 
 # births (S09): one agent reproduces — child placed adjacent,
-# lineage + parent→child message recorded as an AGENT_BORN event
+# lineage + inheritance recorded as an AGENT_BORN event
 curl -s -X POST localhost:8000/api/worlds/1/births \
      -H "Content-Type: application/json" \
-     -d '{"parent_id": 1, "message": "go east"}'
+     -d '{"parent_id": 1,
+          "inheritance": {"traits": {}, "knowledge": ["fact"],
+                          "message": "go east",
+                          "cultural_artifacts": []}}'
 #   201: {"id": 2, "parent_id": 1, "generation": 1, ...}
 #   409: no free cell adjacent to the parent
+#   S10: omit "inheritance" to use the parent's pending intent
+#        (declared by its last decision)
 ```
 
 ## Model providers (S07+)

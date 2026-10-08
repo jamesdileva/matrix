@@ -183,6 +183,9 @@ class WorldRegistry:
                     birth_tick=0,
                     status="active",
                     location=agent.position.to_dict() if agent.position else None,
+                    inherited_traits={},
+                    inherited_knowledge=[],
+                    cultural_artifacts=[],
                 )
                 session.add(record)
                 session.flush()

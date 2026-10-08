@@ -17,10 +17,13 @@ was before.
 
 from __future__ import annotations
 
+import copy
+
 from app.simulation.actions import ActionResult
 from app.simulation.agent import Agent
 from app.simulation.errors import BirthError
 from app.simulation.events import EventTypes
+from app.simulation.inheritance import InheritancePackage
 from app.simulation.policies import WanderPolicy
 from app.simulation.world import Position, World
 
@@ -61,17 +64,20 @@ class Engine:
         *,
         policy=None,
         position: Position | None = None,
-        message: str | None = None,
+        inheritance: "dict | InheritancePackage | None" = None,
     ) -> Agent:
         """Reproduce: one parent, one child, one linked lineage (S09).
 
-        The child inherits (guide §10, "start with parent -> child
-        message"): the parent's goal, and a seeded memory entry
-        carrying the parent's message. What *mind* the child gets is
-        the caller's decision — the default is the simplest scripted
-        one, and live worlds pass a fresh policy (a new ModelPolicy
-        for model brains; a policy holds one agent's in-flight
-        decision, never shared).
+        **Inheritance (S10).** The child receives the parent's
+        *intended* package — the ``inheritance`` argument, or the
+        parent's pending intent declared by its last decision. Four
+        parts travel (roadmap): traits, knowledge, message, cultural
+        artifacts. A parent's own state that the package does not carry
+        never reaches the child: uninherited memory does not
+        magically appear. Everything is deep-copied, so parent and
+        child are independent from the moment of birth, and the
+        package recorded on the AGENT_BORN event never aliases later
+        mutation of either.
 
         Placement is deterministic: the first free floor cell adjacent
         to the parent in N → E → S → W order, or an explicit position.
@@ -87,6 +93,10 @@ class Engine:
         if child_position is None:
             raise BirthError(f"no free cell adjacent to agent {parent_id}")
 
+        package = InheritancePackage.from_dict(
+            inheritance if inheritance is not None else parent.pending_inheritance
+        )
+
         child = Agent(
             agent_id=self._next_agent_id(),
             policy=policy if policy is not None else WanderPolicy(),
@@ -94,15 +104,21 @@ class Engine:
             generation=parent.generation + 1,
             population_id=parent.population_id,
         )
-        # Minimal inheritance package: the parent's goal is the child's
-        # starting goal, and the parent -> child message is seeded into
-        # the child's memory as its first recollection.
+        # The package lands on the child as state — deep-copied, so
+        # neither the parent's intent nor this event's payload can
+        # alias the child's future edits.
+        child.traits = copy.deepcopy(package.traits)
+        child.knowledge = list(package.knowledge)
+        child.cultural_artifacts = list(package.cultural_artifacts)
+        child.inheritance_received = package.as_dict()
+        # The parent's goal starts the child's, and the parent's
+        # message is the child's first recollection (guide §10).
         child.goal = parent.goal
         child.memory.remember_action(
             tick=self.world.tick,
             action={"kind": "inheritance", "from": parent.agent_id},
             ok=True,
-            reason=message,
+            reason=package.message,
             goal=child.goal,
         )
         self.spawn_agent(child, child_position)
@@ -117,7 +133,8 @@ class Engine:
                 "generation": child.generation,
                 "population_id": child.population_id,
                 "position": child_position.to_dict(),
-                "inheritance": {"goal": child.goal, "message": message},
+                "goal": child.goal,
+                "inheritance": package.as_dict(),
             },
         )
         return child

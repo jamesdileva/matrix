@@ -46,7 +46,7 @@ class TestCreateChild:
         engine = _flat_engine(population_id=7)
         _spawn(engine, 1, 2, 2)
 
-        engine.create_child(1, message="go west, young one")
+        engine.create_child(1, inheritance={"message": "go west, young one"})
 
         born = [e for e in engine.world.events if e.type == EventTypes.AGENT_BORN]
         assert len(born) == 1
@@ -56,7 +56,12 @@ class TestCreateChild:
         assert payload["generation"] == 1
         assert payload["population_id"] == 7
         assert payload["position"] == {"x": 2, "y": 1}
-        assert payload["inheritance"] == {"goal": None, "message": "go west, young one"}
+        assert payload["inheritance"] == {
+            "traits": {},
+            "knowledge": [],
+            "message": "go west, young one",
+            "cultural_artifacts": [],
+        }
         assert born[0].actor_id == 1
         assert born[0].target_id == 2
 
@@ -64,7 +69,7 @@ class TestCreateChild:
         engine = _flat_engine()
         parent = _spawn(engine, 1, 2, 2, goal="find food")
 
-        child = engine.create_child(1, message="eat well")
+        child = engine.create_child(1, inheritance={"message": "eat well"})
 
         assert child.goal == "find food"  # the parent's goal starts the child's
         entry = child.memory.recent()[0]

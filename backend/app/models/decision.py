@@ -15,7 +15,10 @@ The shape follows the engine's existing contract (``agent.py``):
     {"action": {"action": "move", "direction": "north"},
      "goal_update": "find food",        # optional, str
      "thought_summary": "why",          # optional, str
-     "message": null}                   # optional, str | None
+     "message": null,                   # optional, str | None
+     "inheritance": {"traits": ..., "knowledge": [...],
+                     "message": ..., "cultural_artifacts": [...]}}
+                                         # optional, dict — S10 parent intent
 
 Guide §7 spells the verb as ``{"type": "move"}`` inside the proposal;
 that spelling is accepted and normalized to the engine contract so
@@ -56,6 +59,11 @@ class Decision:
     goal_update: str | None = None
     thought_summary: str | None = None
     message: str | None = None
+    # S10: what the agent intends to pass to its next child. Structure
+    # is validated here (an object); meaning (traits/knowledge/
+    # message/cultural_artifacts) belongs to the engine's
+    # InheritancePackage.
+    inheritance: dict | None = None
 
     def as_dict(self) -> dict:
         """The dict an ``Agent`` consumes (``Policy.decide``'s contract)."""
@@ -66,6 +74,8 @@ class Decision:
             decision["thought_summary"] = self.thought_summary
         if self.message is not None:
             decision["message"] = self.message
+        if self.inheritance is not None:
+            decision["inheritance"] = self.inheritance
         return decision
 
 
@@ -103,7 +113,14 @@ def parse_decision(raw: str | dict) -> Decision:
         goal_update=_optional_str(data, "goal_update"),
         thought_summary=_optional_str(data, "thought_summary"),
         message=_optional_str(data, "message"),
+        inheritance=_optional_dict(data, "inheritance"),
     )
+
+
+def _optional_dict(data: dict, key: str) -> dict | None:
+    """Optional structured fields: keep objects, drop wrong types."""
+    value = data.get(key)
+    return value if isinstance(value, dict) else None
 
 
 def _optional_str(data: dict, key: str) -> str | None:

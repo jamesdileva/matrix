@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S10 — Inheritance
-- Completed sprints: S01–S09, S06B (S09 done 2026-10-08)
+- **Next sprint:** S11 — 100-Generation Lineage Experiment
+- Completed sprints: S01–S10, S06B (S10 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -875,3 +875,91 @@ generational turnover, experiments-layer birth policies.
 ### Commits
 - `378542c` — S09: birth & generation — create_child, lineage fields, AGENT_BORN events, population persistence, births API [pushed]
 
+
+
+## S10 � Inheritance (in progress)
+
+### Plan (2026-10-08)
+S09 let a lineage continue; this sprint lets it carry culture. The
+inheritance package (traits, knowledge, message, cultural artifacts �
+the roadmap's four parts) is declared by the parent as *intent* in its
+decision, travels through `create_child`, and lands on the child as
+state the child can see in its observation. The guide's lineage
+experiment (�11) needs exactly this: a child that receives, then
+decides what to pass onward.
+
+### Scope (2026-10-08)
+In: `InheritancePackage` (the four parts, tolerant parse, deep-copy
+transfer); parent intent — a decision's `inheritance` field stored as
+the parent's pending inheritance and used by default at birth;
+child state — `traits`, `knowledge`, `cultural_artifacts` on the
+agent, all visible in the observation so the next decision can use
+them; the package recorded on `AGENT_BORN` and persisted to
+`AgentModel` (`inherited_traits`, `inherited_knowledge`,
+`cultural_artifacts`, `working_memory`); `POST /worlds/{id}/births`
+takes an `inheritance` package; the roadmap's four verification
+items as tests.
+Out (S11+): the 100-generation experiment itself (S11), knowledge
+*acquisition* during life (agents today only carry what they were
+given), semantic-similarity scoring of transmissions, death and
+generational turnover, population branching rules.
+
+### Implementation
+- `backend/app/simulation/inheritance.py` — `InheritancePackage`:
+  the four roadmap parts, a tolerant parse (wrong-typed parts are
+  dropped, never fatal — same policy as the decision contract's
+  optional fields) and a JSON-safe `as_dict`.
+- Parent intent: a decision's `inheritance` field (validated by the
+  S07 decision parser as "an object", meaningless to it on purpose)
+  is stored by `Agent.act` as the parent's *pending* inheritance.
+  `create_child` uses the explicit package when given, the parent's
+  pending intent otherwise. A parent's own state the package does not
+  carry never reaches the child.
+- Child state: `traits`, `knowledge`, `cultural_artifacts` on the
+  Agent, deep-copied in at birth and surfaced in the observation —
+  deciding what to pass onward requires seeing what was passed to
+  you (guide §11). The message keeps its S09 role as the child's
+  first seeded recollection.
+- Independence: every transfer is a deep copy — parent intent, child
+  state and the recorded AGENT_BORN payload cannot alias each other,
+  so later mutation of any of them is invisible to the others.
+- Decision contract: `Decision.inheritance` (object or None), parsed
+  and round-tripped.
+- Persistence: new `agents.cultural_artifacts` JSON column (migration
+  `b2f4a7c91d58`) beside the two columns S02 already had;
+  `AgentRecorder` maps the package onto `inherited_traits` /
+  `inherited_knowledge` / `cultural_artifacts` / `goals` /
+  `working_memory`; founding rows get the empty parts explicitly.
+- API: `POST /worlds/{id}/births` body is now
+  `{"parent_id", "inheritance": {...}}` (S09's `message` shorthand is
+  `inheritance.message`).
+
+### Verification
+- Tests: pytest **189 passed** (14 new: package normalize/tolerate/
+  round-trip/JSON-safety; explicit package lands on the child;
+  decision-declared intent used by default; inheritance visible in
+  the observation; uninherited state stays with the parent; empty
+  intent transmits only its message; child mutation cannot touch the
+  parent's intent or the recorded event; decision-contract parsing of
+  `inheritance`; founder observation's empty parts).
+- Roadmap S10 checklist:
+  - Child receives parent's intended inheritance ✅ (explicit package
+    and decision-declared intent, both verified).
+  - Uninherited memory does not magically appear ✅ (parent's
+    knowledge/traits stay with the parent when the package omits them).
+  - Inheritance is recorded ✅ (AGENT_BORN payload carries the full
+    package; the agent row carries it in columns — verified live in
+    the dev database).
+  - Parent and child states remain independent after creation ✅
+    (deep-copy transfer, verified against parent intent and the
+    recorded event).
+- Live: world 24 — a birth with a full package returned the child
+  with all four parts; the AGENT_BORN event carried them; the
+  database row (`local_id 2`, `generation 1`, `parent_id 8` — the
+  founder's global id) stored traits, knowledge, artifacts and the
+  seeded working memory; the 2-agent world kept ticking.
+- E2E unchanged: headless Godot client → **FLOOD_SMOKE OK
+  world=25 tick=2 agents=3**; client headless test `SMOKE OK`.
+
+### Commits
+- (pending — not yet committed at time of writing)

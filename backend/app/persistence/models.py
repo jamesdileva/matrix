@@ -81,6 +81,7 @@ class AgentModel(Base):
     location: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     inherited_traits: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     inherited_knowledge: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    cultural_artifacts: Mapped[list | None] = mapped_column(JSON, nullable=True)
     acquired_knowledge: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     working_memory: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     goals: Mapped[dict | None] = mapped_column(JSON, nullable=True)

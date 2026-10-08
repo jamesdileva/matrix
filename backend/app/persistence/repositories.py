@@ -145,6 +145,7 @@ class AgentRecorder:
         parent_global = self._local_to_global.get(payload["parent_id"])
         if parent_global is None:  # parent outside this world's recorded agents
             return
+        package = payload.get("inheritance") or {}
         with self._session_factory() as session:
             row = AgentModel(
                 world_id=self._world_id,
@@ -155,6 +156,16 @@ class AgentRecorder:
                 birth_tick=event.tick,
                 status="active",
                 location=payload.get("position"),
+                inherited_traits=package.get("traits"),
+                inherited_knowledge=package.get("knowledge"),
+                cultural_artifacts=package.get("cultural_artifacts"),
+                goals=({"goal": payload.get("goal")} if payload.get("goal") else None),
+                working_memory=(
+                    [{"kind": "inheritance", "from": payload["parent_id"],
+                      "message": package.get("message")}]
+                    if package.get("message") is not None
+                    else None
+                ),
             )
             session.add(row)
             session.flush()  # assigns the global id the parent of the next birth will need

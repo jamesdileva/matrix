@@ -83,14 +83,20 @@ class TestBirths:
         world = _create(client)
 
         response = client.post(
-            f"/api/worlds/{world['id']}/births", json={"parent_id": 1, "message": "hello"}
+            f"/api/worlds/{world['id']}/births",
+            json={"parent_id": 1, "inheritance": {"message": "hello"}},
         )
         assert response.status_code == 201
         child = response.json()
         assert child["id"] == 2  # next engine id after the founder
         assert child["parent_id"] == 1
         assert child["generation"] == 1
-        assert child["inheritance"] == {"goal": None, "message": "hello"}
+        assert child["inheritance"] == {
+            "traits": {},
+            "knowledge": [],
+            "message": "hello",
+            "cultural_artifacts": [],
+        }
 
         with Session(engine) as session:
             rows = session.query(AgentModel).all()

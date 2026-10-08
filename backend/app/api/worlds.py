@@ -31,7 +31,10 @@ class CreateWorldRequest(BaseModel):
 
 class BirthRequest(BaseModel):
     parent_id: int
-    message: str | None = None  # the parent -> child message (guide §10)
+    # S10: the four-part package the parent intends to pass on. When
+    # omitted, the parent's pending intent (declared by its last
+    # decision) is used.
+    inheritance: dict | None = None
 
 
 def _host(request: Request, world_id: int) -> WorldHost:
@@ -146,7 +149,7 @@ def create_birth(world_id: int, payload: BirthRequest, request: Request) -> dict
     policy = ModelPolicy(host.provider) if host.provider is not None else None
     try:
         child = host.engine.create_child(
-            payload.parent_id, policy=policy, message=payload.message
+            payload.parent_id, policy=policy, inheritance=payload.inheritance
         )
     except ValueError as exc:  # unknown parent
         raise HTTPException(status_code=400, detail=str(exc)) from exc
