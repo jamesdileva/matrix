@@ -7,15 +7,17 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import type { AgentDetail } from "./api";
+import { LineageExplorer } from "./LineageExplorer";
 import { colors, font, headingStyle, panelStyle } from "./theme";
 
 type Props = {
   worldId: number;
   agentId: number;
   onClose: () => void;
+  onSelectAgent: (agentId: number) => void;
 };
 
-export function AgentInspector({ worldId, agentId, onClose }: Props) {
+export function AgentInspector({ worldId, agentId, onClose, onSelectAgent }: Props) {
   const [detail, setDetail] = useState<AgentDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,18 +72,10 @@ export function AgentInspector({ worldId, agentId, onClose }: Props) {
         <Row label="goal" value={detail.goal ?? "—"} />
       </div>
 
-      <Block title="lineage">
-        <Row label="generation" value={String(detail.generation)} />
-        <Row
-          label="parent"
-          value={detail.parent_id === null ? "founder" : `agent ${detail.parent_id}`}
-        />
-        <Row
-          label="children"
-          value={detail.children.length ? detail.children.map((c) => `#${c}`).join(", ") : "none"}
-        />
-        <Row label="population" value={String(detail.population_id ?? "—")} />
-      </Block>
+      {/* S15: the ancestry — chain, navigation, drift, comparison. */}
+      <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: "0.4rem" }}>
+        <LineageExplorer worldId={worldId} agentId={detail.id} onSelectAgent={onSelectAgent} />
+      </div>
 
       <Block title="current action">
         {detail.last_action ? (

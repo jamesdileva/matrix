@@ -122,22 +122,20 @@ class TestBirths:
         response = client.post(f"/api/worlds/{world['id']}/births", json={"parent_id": 99})
         assert response.status_code == 400
 
-    def test_no_room_rejected_with_409(self, client):
-        # Children fill the four cells adjacent to their parent; the
-        # fifth birth has nowhere to go.
+    def test_birth_succeeds_when_the_neighbourhood_is_full(self, client):
+        # Children fill the four cells around their parent; the engine's
+        # ring search then places the next one just beyond — the
+        # 100-birth lineage chains depend on this.
         world = _create(client, width=8, height=8, agents=1)
-        parent = world["agent_count"]
 
-        status_codes = []
-        for _ in range(5):
-            response = client.post(
-                f"/api/worlds/{world['id']}/births", json={"parent_id": parent}
+        for _ in range(4):
+            assert (
+                client.post(f"/api/worlds/{world['id']}/births", json={"parent_id": 1}).status_code
+                == 201
             )
-            status_codes.append(response.status_code)
-            if response.status_code == 409:
-                break
-        assert 409 in status_codes
-        assert status_codes.index(409) <= 4
+        fifth = client.post(f"/api/worlds/{world['id']}/births", json={"parent_id": 1})
+        assert fifth.status_code == 201
+        assert fifth.json()["id"] == 6
 
     def test_model_world_child_gets_a_model_policy(self, client):
         world = _create(client, brains="model")

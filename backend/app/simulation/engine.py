@@ -18,6 +18,7 @@ was before.
 from __future__ import annotations
 
 import copy
+import math
 
 from app.simulation.actions import ActionResult
 from app.simulation.agent import Agent
@@ -79,9 +80,11 @@ class Engine:
         package recorded on the AGENT_BORN event never aliases later
         mutation of either.
 
-        Placement is deterministic: the first free floor cell adjacent
-        to the parent in N → E → S → W order, or an explicit position.
-        No room raises `BirthError`; nothing is half-applied.
+        Placement is deterministic: the nearest free cell by expanding
+        ring around the parent — clockwise from the north, so ring 1
+        prefers north over its diagonals (see ``_free_cell_near``) — or
+        an explicit position. No room anywhere in the world raises
+        `BirthError`; nothing is half-applied.
         """
         parent = self._agents.get(parent_id)
         if parent is None:
@@ -89,9 +92,9 @@ class Engine:
         if parent.status != "alive":
             raise BirthError(f"parent {parent_id} is not alive")
 
-        child_position = position if position is not None else self._free_adjacent(parent)
+        child_position = position if position is not None else self._free_cell_near(parent)
         if child_position is None:
-            raise BirthError(f"no free cell adjacent to agent {parent_id}")
+            raise BirthError(f"no free cell in the world for agent {parent_id}'s child")
 
         package = InheritancePackage.from_dict(
             inheritance if inheritance is not None else parent.pending_inheritance
@@ -148,19 +151,42 @@ class Engine:
             current = self._agents.get(current.parent_id) if current.parent_id else None
         return list(reversed(chain))
 
-    def _free_adjacent(self, parent: Agent) -> Position | None:
+    def _free_cell_near(self, parent: Agent) -> Position | None:
+        """The nearest free floor cell to the parent, by expanding ring.
+
+        Ring 1 is the immediate neighbourhood (north first, clockwise),
+        so the common case is unchanged — a birth beside its parent.
+        When the neighbourhood is full the search widens: a boxed-in
+        parent in a world with room would otherwise fail forever, which
+        is a bug for anything driving births (the API's birth route).
+        Deterministic: the same world state always yields the same cell.
+        """
         position = parent.position
         if position is None:  # pragma: no cover - status and registry agree
             return None
-        for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):  # N, E, S, W
-            candidate = Position(position.x + dx, position.y + dy)
-            if (
-                self.world.is_floor(candidate)
-                and self.world.object_at(candidate) is None
-                and self.world.entity_at(candidate) is None
-            ):
-                return candidate
+        for radius in range(1, max(self.world.width, self.world.height)):
+            for candidate in self._ring(position, radius):
+                if (
+                    self.world.is_floor(candidate)
+                    and self.world.object_at(candidate) is None
+                    and self.world.entity_at(candidate) is None
+                ):
+                    return candidate
         return None
+
+    @staticmethod
+    def _ring(center: Position, radius: int) -> list[Position]:
+        """A ring's cells, clockwise from the north, out-of-bounds skipped."""
+        offsets = {
+            (dx, dy)
+            for dx in range(-radius, radius + 1)
+            for dy in range(-radius, radius + 1)
+            if max(abs(dx), abs(dy)) == radius
+        }
+        ordered = sorted(
+            offsets, key=lambda d: (math.atan2(d[0], -d[1]) + 2 * math.pi) % (2 * math.pi)
+        )
+        return [Position(center.x + dx, center.y + dy) for dx, dy in ordered]
 
     def step(self) -> list[ActionResult]:
         """One tick: world advances, then every agent observes-decides-acts."""

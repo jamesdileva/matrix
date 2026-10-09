@@ -89,6 +89,42 @@ export type AgentDetail = {
   };
 };
 
+export type Drift = {
+  generation: number;
+  facts_received: number;
+  retained: string[];
+  altered: string[];
+  contradicted: string[];
+  new: string[];
+  lost: string[];
+  message: string | null;
+  message_length: number;
+  avg_similarity: number;
+};
+
+export type LineageMember = {
+  id: number;
+  generation: number;
+  parent_id: number | null;
+  children: number[];
+  position: { x: number; y: number } | null;
+  policy: "model" | "scripted";
+  goal: string | null;
+  status: string;
+  knowledge_count: number;
+  knowledge: string[];
+  traits: Record<string, unknown>;
+  artifacts_count: number;
+  inheritance_message: string | null;
+  drift: Drift;
+};
+
+export type Lineage = {
+  world_id: number;
+  agent_id: number;
+  chain: LineageMember[];
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
   if (!response.ok) {
@@ -122,6 +158,8 @@ export const api = {
     request<{ world_id: number; agents: AgentSummary[] }>(`/api/worlds/${id}/agents`),
   agentDetail: (id: number, agentId: number) =>
     request<AgentDetail>(`/api/worlds/${id}/agents/${agentId}`),
+  agentLineage: (id: number, agentId: number) =>
+    request<Lineage>(`/api/worlds/${id}/agents/${agentId}/lineage`),
   events: (id: number, sinceId: number, limit = 100) =>
     request<{ world_id: number; events: WorldEvent[] }>(
       `/api/worlds/${id}/events?since_id=${sinceId}&limit=${limit}`,

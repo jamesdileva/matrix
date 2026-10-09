@@ -166,7 +166,12 @@ _MODES = {
 # ----------------------------------------------------------------------
 
 
-def _tokens(text: str) -> set[str]:
+def tokens(text: str) -> set[str]:
+    """Word tokens of a fact — the shared unit of the drift metrics.
+
+    Public because the S15 lineage explorer measures drift with the
+    same rules the experiment does.
+    """
     return set(re.findall(r"[a-z0-9]+", text.lower()))
 
 
@@ -188,17 +193,17 @@ def _classify_fact(fact: str, originals: list[str], original_tokens: list[set]) 
     """
     if fact in originals:
         return "retained"
-    fact_tokens = _tokens(fact)
-    for original, tokens in zip(originals, original_tokens):
-        if tokens < fact_tokens and (fact_tokens - tokens) & NEGATION_TOKENS:
+    fact_tokens = tokens(fact)
+    for original, tokens_ in zip(originals, original_tokens):
+        if tokens_ < fact_tokens and (fact_tokens - tokens_) & NEGATION_TOKENS:
             return "contradicted"
-    best = max((_jaccard(fact_tokens, tokens) for tokens in original_tokens), default=0.0)
+    best = max((_jaccard(fact_tokens, tokens_) for tokens_ in original_tokens), default=0.0)
     if best >= ALTER_THRESHOLD:
         return "altered"
     return "new"
 
 
-def _generation_metrics(
+def generation_metrics(
     generation: int,
     knowledge: list[str],
     message: str | None,
@@ -211,7 +216,7 @@ def _generation_metrics(
     for fact in knowledge:
         classified[_classify_fact(fact, originals, original_tokens)].append(fact)
         similarities.append(
-            max((_jaccard(_tokens(fact), tokens) for tokens in original_tokens), default=0.0)
+            max((_jaccard(tokens(fact), tokens_) for tokens_ in original_tokens), default=0.0)
         )
     received = set(knowledge)
     return {
@@ -221,7 +226,7 @@ def _generation_metrics(
         "altered": sorted(classified["altered"]),
         "contradicted": sorted(classified["contradicted"]),
         "new": sorted(classified["new"]),
-        "lost": [fact for fact in originals if fact not in received],
+        "lost": sorted(fact for fact in originals if fact not in received),
         "message": message,
         "message_length": len(message) if message else 0,
         "avg_similarity": round(statistics.fmean(similarities), 4) if similarities else 0.0,
@@ -357,7 +362,7 @@ def run_lineage_experiment(
     that makes 10,000 generations take seconds, not minutes).
     """
     originals = list(facts if facts is not None else DEFAULT_FACTS)
-    original_tokens = [_tokens(fact) for fact in originals]
+    original_tokens = [tokens(fact) for fact in originals]
     policy, configuration = _build_policy(mode)
     name = name or f"lineage-{seed}"
     world_size = _auto_world_size(generations) if world_size is None else world_size
@@ -470,7 +475,7 @@ def run_lineage_experiment(
                 position=_chain_position(generation, world_size),
             )
             trajectory.append(
-                _generation_metrics(
+                generation_metrics(
                     generation,
                     child.knowledge,
                     (intent or {}).get("message"),
@@ -647,7 +652,7 @@ def resume_lineage_experiment(
         experiment_row.started_at = experiment_row.started_at or datetime.now(timezone.utc)
         session.commit()
 
-    original_tokens = [_tokens(fact) for fact in originals]
+    original_tokens = [tokens(fact) for fact in originals]
     checkpoints = CheckpointRepository(session_factory)
 
     async def _drive() -> list[dict]:
@@ -661,7 +666,7 @@ def resume_lineage_experiment(
                 position=_chain_position(generation, world_size),
             )
             trajectory.append(
-                _generation_metrics(
+                generation_metrics(
                     generation,
                     child.knowledge,
                     (intent or {}).get("message"),

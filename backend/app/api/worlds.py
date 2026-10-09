@@ -10,6 +10,8 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.config.settings import settings
+from app.experiments.lineage import generation_metrics as _generation_metrics
+from app.experiments.lineage import tokens as _tokens
 from app.host import BRAINS_MODEL, BRAINS_SCRIPTED, WorldHost
 from app.simulation.errors import BirthError
 from app.simulation.events import EventTypes
@@ -228,6 +230,61 @@ def get_agent(world_id: int, agent_id: int, request: Request) -> dict:
             "cultural_artifacts": agent.cultural_artifacts,
         },
     }
+
+
+@router.get("/worlds/{world_id}/agents/{agent_id}/lineage")
+def get_agent_lineage(world_id: int, agent_id: int, request: Request) -> dict:
+    """S15: this agent's ancestry, founder first — the lineage explorer's feed.
+
+    Each chain member carries its state, and its *drift* against the
+    lineage's originals — the earliest knowledge in the chain —
+    classified by the same rules the S11 experiment measures with
+    (retained / lost / altered / new + similarity).
+    """
+    host = _host(request, world_id)
+    agent = next((a for a in host.engine.agents if a.agent_id == agent_id), None)
+    if agent is None:
+        raise HTTPException(status_code=404, detail=f"agent {agent_id} not in world {world_id}")
+
+    chain = host.engine.ancestors(agent.agent_id)  # founder -> selected agent
+    # The lineage's originals: the earliest knowledge in the chain — the
+    # founder's set when the founder carries one (the experiment's
+    # shape), otherwise the first generation that did (live worlds'
+    # founders start empty and receive the set with their first child).
+    originals = next((list(m.knowledge) for m in chain if m.knowledge), [])
+    original_tokens = [_tokens(fact) for fact in originals]
+
+    members = []
+    for member in chain:
+        message = None
+        for entry in member.memory.recent():
+            if entry.get("action", {}).get("kind") == "inheritance":
+                message = entry.get("reason")
+        members.append(
+            {
+                "id": member.agent_id,
+                "generation": member.generation,
+                "parent_id": member.parent_id,
+                "children": [a.agent_id for a in host.engine.agents if a.parent_id == member.agent_id],
+                "position": member.position.to_dict() if member.position else None,
+                "policy": "model" if hasattr(member.policy, "refresh") else "scripted",
+                "goal": member.goal,
+                "status": member.status,
+                "knowledge_count": len(member.knowledge),
+                "knowledge": list(member.knowledge),
+                "traits": member.traits,
+                "artifacts_count": len(member.cultural_artifacts),
+                "inheritance_message": message,
+                "drift": _generation_metrics(
+                    member.generation,
+                    member.knowledge,
+                    None,
+                    originals,
+                    original_tokens,
+                ),
+            }
+        )
+    return {"world_id": world_id, "agent_id": agent.agent_id, "chain": members}
 
 
 @router.post("/worlds/{world_id}/births", status_code=201)

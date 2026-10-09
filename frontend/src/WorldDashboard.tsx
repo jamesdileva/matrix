@@ -170,6 +170,7 @@ export function WorldDashboard({ worldId, onWorldsChanged }: Props) {
             worldId={worldId}
             agentId={selectedAgent}
             onClose={() => setSelectedAgent(null)}
+            onSelectAgent={setSelectedAgent}
           />
         )}
       </div>

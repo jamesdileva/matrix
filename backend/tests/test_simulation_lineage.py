@@ -115,17 +115,43 @@ class TestCreateChild:
             engine.create_child(1)
 
     def test_no_room_rejected_and_nothing_half_applied(self):
-        engine = _flat_engine()
-        parent = _spawn(engine, 1, 2, 2)
-        # Box the parent in with other entities.
-        for i, (dx, dy) in enumerate(((0, -1), (1, 0), (0, 1), (-1, 0))):
-            _spawn(engine, i + 2, 2 + dx, 2 + dy)
+        # BirthError is for a world with no free cell anywhere — not
+        # for a full neighbourhood (that search widens).
+        engine = Engine(
+            World("full", 3, 3, terrain=[[Terrain.FLOOR] * 3 for _ in range(3)])
+        )
+        _spawn(engine, 1, 1, 1)
+        agent_id = 2
+        for y in range(3):
+            for x in range(3):
+                if (x, y) != (1, 1):
+                    _spawn(engine, agent_id, x, y)
+                    agent_id += 1
 
         with pytest.raises(BirthError, match="no free cell"):
             engine.create_child(1)
 
-        assert len(engine.agents) == 5  # parent + four blockers, no child
+        assert len(engine.agents) == 9  # the full world, no child
         assert not [e for e in engine.world.events if e.type == EventTypes.AGENT_BORN]
+
+    def test_boxed_in_parent_births_to_the_nearest_free_cell(self):
+        # The neighbourhood is full; the ring search widens instead of
+        # failing (the API's birth route drove 100 births before this).
+        engine = Engine(
+            World("wide", 9, 9, terrain=[[Terrain.FLOOR] * 9 for _ in range(9)])
+        )
+        _spawn(engine, 1, 4, 4)
+        for i, (dx, dy) in enumerate(((0, -1), (1, 0), (0, 1), (-1, 0))):
+            _spawn(engine, i + 2, 4 + dx, 4 + dy)
+
+        child = engine.create_child(1)
+
+        assert child.status == "alive"
+        assert child.position not in [Position(4, 3), Position(5, 4), Position(4, 5), Position(3, 4)]
+        # Deterministic: the nearest free cell, clockwise from the north
+        # — the parent's north-east diagonal, since the four orthogonal
+        # neighbours are occupied.
+        assert child.position == Position(5, 3)
 
 
 class TestSequentialLineage:

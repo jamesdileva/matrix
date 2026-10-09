@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S15 — Lineage Explorer
-- Completed sprints: S01–S14, S06B (S14 done 2026-10-08)
+- **Next sprint:** S16 — Word Seed Experiment
+- Completed sprints: S01–S15, S06B (S15 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -1313,3 +1313,75 @@ summary), agent history across worlds, editing agent state.
 
 ### Commits
 - `24d0c36` — S14: agent inspector — detail route, viewport picking, roster, inspector panel [pushed]
+
+## S15 � Lineage Explorer (in progress)
+
+### Plan (2026-10-08)
+The lineage is now long, structured and measured (S09�S12) but only
+readable as rows. This sprint makes ancestry visual: select an agent,
+see its full ancestor chain from the founder, walk it � the
+roadmap's check is "select Agent 100, navigate to Agent 0 and
+intermediate generations" � with inherited-information comparison and
+drift indicators at every step.
+
+### Scope (2026-10-08)
+In: `GET /api/worlds/{id}/agents/{agent_id}/lineage` — the ancestor
+chain (founder first) with per-generation state, plus drift metrics
+computed against the lineage's originals (reusing S11's
+classification: retained/lost/altered/new + similarity); the lineage
+rail in the inspector — every ancestor click-to-navigate, so the
+chain is both the view and the navigation; an inherited-information
+comparison block for the inspected generation.
+Out: the branching family tree (multiple children per node — the
+chain view is one lineage; populations birth siblings), cross-world
+lineage, semantic similarity beyond the S11 lexical proxy.
+
+### Implementation
+- Backend: `GET /api/worlds/{id}/agents/{agent_id}/lineage` — walks
+  `Engine.ancestors` (founder first) and returns each member's state
+  (id, generation, parent, children, position, policy, goal, status,
+  knowledge, traits, artifacts, inheritance message) plus its *drift*
+  — S11's `generation_metrics`/`tokens` promoted from private helpers
+  and reused verbatim, so the explorer and the experiment measure
+  drift by identical rules. The originals are the lineage's *earliest
+  knowledge carrier* (the founder's set when it has one, else the
+  first generation that did — live founders start empty).
+- Frontend: `LineageExplorer.tsx` — the rail (founder at top,
+  selected agent at the bottom) with per-generation drift chips
+  (retained/lost/altered/new + similarity) and the parent→child
+  message; clicking any ancestor re-selects that agent, so the chain
+  is the navigation; below it, the inherited-information comparison
+  for the inspected generation (the retained/lost/altered/new fact
+  lists). Wired into the inspector where the plain lineage block was.
+- **Engine fix found by the live check**: birth placement was the
+  four-cell neighbourhood walk, which self-traps (the S12 experiment
+  runner already worked around it with explicit positions; an API
+  caller cannot). `Engine._free_adjacent` became
+  `Engine._free_cell_near`: an expanding Chebyshev ring search from
+  the parent, north-first clockwise — adjacent births unchanged in
+  the common case, but a boxed-in parent now births at the nearest
+  free cell instead of failing forever. `BirthError` now means "the
+  world has no free cell at all" (tests updated: a genuinely full
+  3×3 world, plus the new boxed-in-still-births case; the API test
+  that expected a 409-from-boxing became a 201-at-ring-2 test).
+  This is what made the roadmap's Agent-100 chain livable: 100 API
+  births completed, chain 0..100.
+
+### Verification
+- Tests: pytest **234 passed** (8 new: the chain from the deepest
+  agent with navigation links and children; founder-alone lineage;
+  drift against the lineage's originals (the earliest carrier), with
+  the founder's own row honest about its empty start; inheritance
+  messages as first recollections; 404s; plus the reworked birth
+  placement tests — full-world BirthError with nothing half-applied,
+  and boxed-in-still-births at the deterministic nearest cell).
+- Live (world 38): **100 API births, agent 101, chain 0..100** — the
+  roadmap's check end to end. Drift reads correctly down the chain:
+  generation 1 retains 10/10, generation 50 still 10, generation 100
+  retains 6 with 4 lost (the transport set shrank at 51 by design).
+- Roadmap S15 checklist: select Agent 100 and navigate to Agent 0 and
+  intermediate generations ✅ (the rail is the navigation; every
+  intermediate generation exists in the feed).
+
+### Commits
+- (pending — not yet committed at time of writing)

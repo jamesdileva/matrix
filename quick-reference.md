@@ -90,9 +90,15 @@ curl -s -X POST localhost:8000/api/worlds/1/births \
                           "message": "go east",
                           "cultural_artifacts": []}}'
 #   201: {"id": 2, "parent_id": 1, "generation": 1, ...}
-#   409: no free cell adjacent to the parent
+#   409: the world has no free cell at all (the child is placed at the
+#        nearest free cell by expanding ring — a full neighbourhood
+#        alone does not block a birth)
 #   S10: omit "inheritance" to use the parent's pending intent
 #        (declared by its last decision)
+
+# ancestry (S15): the lineage explorer's feed — chain from the founder,
+# drift per generation, click-to-navigate in the console
+curl -s localhost:8000/api/worlds/1/agents/100/lineage
 ```
 
 ## Model providers (S07+)
