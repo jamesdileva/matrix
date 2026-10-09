@@ -1384,4 +1384,4 @@ lineage, semantic similarity beyond the S11 lexical proxy.
   intermediate generation exists in the feed).
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `72b7aa1` — S15: lineage explorer — ancestry feed with drift, navigable rail, expanding-ring birth placement fix [pushed]
