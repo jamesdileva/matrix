@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S18 — Building System
-- Completed sprints: S01–S17, S06B (S17 done 2026-10-08)
+- **Next sprint:** S19 — House Experiment
+- Completed sprints: S01–S18, S06B (S18 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -1528,3 +1528,71 @@ structures, resource respawn/regrowth, trade, hunger/needs.
 
 ### Commits
 - `d0ee4e3` — S17: resources — quantities, gather action, depletion, ledger, conservation, GathererPolicy [pushed]
+
+## S18 � Building System (in progress)
+
+### Plan (2026-10-08)
+Agents can gather (S17); now they can alter the Void with it (roadmap
+S18). Blocks cost materials from the ledger, occupy cells (so a wall
+is a wall), and group into structures by adjacency � the guide's
+"a building is simply a collection of world objects with
+relationships", with id, owner, components and purpose. The
+verification is a scripted agent constructing a valid structure: a
+builder mind that lays a wall of wood blocks it was granted.
+
+### Scope (2026-10-08)
+In: block placement (`build`) and removal (`remove`) actions with
+material costs and validation; structure grouping (adjacency-based,
+explicit-id override, purpose, owner); structures exposed to the API
+(GET /worlds/{id}/structures) and to an agent-action injection route
+(POST /worlds/{id}/actions — the operator seam S19's house
+experiment will use); a scripted `BuilderPolicy`; tests including the
+roadmap's scripted-construction check.
+Out: architectural realism (guide: not initially), structure decay,
+ownership enforcement between agents, door/window behaviour beyond
+block types, the house experiment itself (S19).
+
+### Implementation
+- `world.py`: the `Structure` aggregate (id, owner, purpose,
+  components — the guide's §13 shape) plus a registry: adjacency-based
+  grouping (`structure_for_cell`), `create_structure` (emits
+  `STRUCTURE_CREATED`), membership, and `remove_block`, which frees the
+  cell, drops the component, and dissolves an emptied structure.
+- `actions.py`: `build` — validates the block type, direction, target
+  (floor, unoccupied), then spends the recipe from the ledger (S17's
+  `spend_resource`) and places the block, which occupies its cell like
+  any object (a wall is a wall). `remove` — refunds the block's
+  material and unbuilds it. `purpose` designates a structure at
+  creation *or* on joining. Rejections (`unknown_block`,
+  `insufficient_materials`, `unknown_structure`, `not_a_block`,
+  `cell_occupied`, `impassable_terrain`, `invalid_direction`) record
+  like every other violation; nothing is half-applied.
+- `policies.py`: `BuilderPolicy` — the scripted constructor. Blocks
+  block movement, so it builds north when it can and walks the
+  worksite otherwise: a single builder lays a contiguous wall over
+  several ticks, which is exactly what structure grouping keys on.
+- API: `POST /worlds/{id}/actions` (operator injection — the action
+  travels the same validated path as an agent's own decisions) and
+  `GET /worlds/{id}/structures` (the buildings, with components).
+
+### Verification
+- Tests: pytest **280 passed** (20 new: placement spends and occupies;
+  all rejection reasons incl. insufficient materials and unknown block;
+  stone blocks cost stone; adjacency grouping; explicit-id joins
+  across gaps with purpose; dissolving structures; removal refunds and
+  frees the cell; material conservation across build/remove — a block
+  is spent ledger in object form; the scripted builder constructing a
+  valid contiguous structure owned by itself; the builder stopping when
+  materials run out; building through the agent lifecycle; and the API
+  routes — gather-then-build producing a purpose-carrying structure,
+  rejected actions reported not raised, 404s).
+- Live (world 48, through the public API only): the agent walked to a
+  tree, gathered **3 wood**, then built a wood block — `GET
+  /worlds/48/structures` shows structure 1 ("shelter", owner 1, one
+  wood_block at (10,5)). Gather → build → structure, end to end.
+- Roadmap S18 checklist: a scripted agent can construct a valid
+  structure ✅ (the BuilderPolicy test — contiguous, owned, all
+  components on the grid, materials exactly accounted).
+
+### Commits
+- (pending — not yet committed at time of writing)

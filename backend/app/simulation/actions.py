@@ -15,7 +15,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from app.simulation.events import Event
-from app.simulation.world import RESOURCE_OF_OBJECT, WATER_RESOURCE, Position, Terrain, World
+from app.simulation.world import (
+    BLOCK_RECIPES,
+    RESOURCE_OF_OBJECT,
+    WATER_RESOURCE,
+    Position,
+    Terrain,
+    World,
+)
 
 RESOURCE_SOURCES = {
     resource: object_type for object_type, resource in RESOURCE_OF_OBJECT.items()
@@ -60,6 +67,8 @@ HANDLERS = {
     "drop": "_drop",
     "place": "_place",
     "gather": "_gather",
+    "build": "_build",
+    "remove": "_remove",
 }
 
 
@@ -142,6 +151,100 @@ def _gather(world: World, actor_id, action: dict) -> dict:
             "depleted": depleted,
         }
     raise _Rejected("no_source_nearby", {"resource": resource, "wanted": source_type})
+
+
+def _build(world: World, actor_id, action: dict) -> dict:
+    """Place a block on an adjacent cell, spending its materials (S18).
+
+    The block occupies its cell (a wall is a wall). It joins an
+    adjacent structure by adjacency — the guide's "a building is a
+    collection of world objects with relationships" — or starts a new
+    one owned by the builder, unless an explicit structure id says
+    otherwise. Material costs come from the ledger (S17): no wood, no
+    block.
+    """
+    position = _require_actor(world, actor_id)
+    block_type = action.get("block")
+    if block_type not in BLOCK_RECIPES:
+        raise _Rejected("unknown_block", {"block": block_type})
+
+    direction = action.get("direction")
+    if not isinstance(direction, str) or direction not in DIRECTIONS:
+        raise _Rejected("invalid_direction", {"direction": direction})
+    dx, dy = DIRECTIONS[direction]
+    target = Position(position.x + dx, position.y + dy)
+    if not world.in_bounds(target):
+        raise _Rejected("out_of_bounds", {"to": target.to_dict()})
+    if world.terrain_at(target) is not Terrain.FLOOR:
+        raise _Rejected("impassable_terrain", {"to": target.to_dict()})
+    if target in world._occupancy:
+        raise _Rejected("cell_occupied", {"to": target.to_dict()})
+    if target in world._entity_cells:
+        raise _Rejected("cell_occupied", {"to": target.to_dict(), "entity_id": world._entity_cells[target]})
+
+    recipe = BLOCK_RECIPES[block_type]
+    if not all(world.resource_count(actor_id, kind) >= amount for kind, amount in recipe.items()):
+        raise _Rejected(
+            "insufficient_materials",
+            {"block": block_type, "cost": recipe, "carried": world.resources(actor_id)},
+        )
+
+    structure_id = action.get("structure")
+    if structure_id is not None and world.structure_by_id(structure_id) is None:
+        raise _Rejected("unknown_structure", {"structure": structure_id})
+
+    for kind, amount in recipe.items():
+        world.spend_resource(actor_id, kind, amount)
+
+    purpose = action.get("purpose")
+    if not isinstance(purpose, str):
+        purpose = None
+    if structure_id is None:
+        structure_id = world.structure_for_cell(target)
+    if structure_id is None:
+        structure_id = world.create_structure(owner=actor_id, purpose=purpose)
+    elif purpose is not None:
+        # Joining can designate: a builder naming the structure it adds to.
+        world.structure_by_id(structure_id).purpose = purpose
+
+    obj = world.place_object(
+        block_type,
+        target,
+        properties={"material": recipe, "placed_by": actor_id, "structure_id": structure_id},
+        created_by_agent_id=actor_id,
+    )
+    world.add_to_structure(structure_id, obj.id)
+    return {
+        "block": block_type,
+        "object_id": obj.id,
+        "structure_id": structure_id,
+        "position": target.to_dict(),
+    }
+
+
+def _remove(world: World, actor_id, action: dict) -> dict:
+    """Remove a placed block from an adjacent cell (S18).
+
+    The block's material goes back to the actor's ledger, its cell is
+    free again, and it leaves its structure — an emptied structure is
+    gone.
+    """
+    position = _require_actor(world, actor_id)
+    direction = action.get("direction")
+    if not isinstance(direction, str) or direction not in DIRECTIONS:
+        raise _Rejected("invalid_direction", {"direction": direction})
+    dx, dy = DIRECTIONS[direction]
+    target = Position(position.x + dx, position.y + dy)
+    obj = world.object_at(target)
+    if obj is None or "structure_id" not in obj.properties:
+        raise _Rejected("not_a_block", {"position": target.to_dict()})
+
+    material = obj.properties.get("material") or {}
+    world.remove_block(obj.id)
+    for kind, amount in material.items():
+        if amount > 0:
+            world.credit_resource(actor_id, kind, amount)
+    return {"block": obj.type, "object_id": obj.id, "refunded": dict(material)}
 
 
 # ----------------------------------------------------------------------

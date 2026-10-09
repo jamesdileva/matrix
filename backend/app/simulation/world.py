@@ -34,6 +34,27 @@ DEFAULT_OBJECT_QUANTITIES = {"tree": 3, "stone": 3, "food": 2}
 RESOURCE_OF_OBJECT = {"tree": "wood", "stone": "stone", "food": "food"}
 WATER_RESOURCE = "water"
 
+# Building recipes (S18): block type -> material cost from the ledger.
+BLOCK_RECIPES = {
+    "wood_block": {"wood": 1},
+    "stone_block": {"stone": 1},
+    "door": {"wood": 1},
+}
+
+
+@dataclass
+class Structure:
+    """A building: a named collection of placed blocks (guide §13).
+
+    Identity, owner, components, purpose — no architectural realism
+    attempted.
+    """
+
+    id: int
+    owner: int | None
+    purpose: str | None
+    components: list[int] = field(default_factory=list)  # object ids, placement order
+
 
 def _resource_kind_of(object_type: str) -> str | None:
     """The resource an object type yields, if any."""
@@ -165,6 +186,10 @@ class World:
         # world is the only writer; gathering moves units from object
         # quantities in, spending (S18) moves them out.
         self._resources: dict[int, dict[str, int]] = {}
+        # Structures (S18): block object ids grouped by adjacency.
+        self._structures: dict[int, Structure] = {}
+        self._next_structure_id = 1
+        self._structure_of: dict[int, int] = {}  # object id -> structure id
         self._events: list[Event] = list(events or [])
         self._next_event_id = (
             next_event_id
@@ -464,6 +489,71 @@ class World:
             target_id=object_id,
             payload={"type": obj.type, "position": position.to_dict() if position else None},
         )
+
+    # ------------------------------------------------------------------
+    # Structures (S18)
+    # ------------------------------------------------------------------
+
+    def structures(self) -> list[Structure]:
+        """All structures, in creation order."""
+        return [self._structures[i] for i in sorted(self._structures)]
+
+    def structure_by_id(self, structure_id: int) -> Structure | None:
+        """One structure, or None."""
+        return self._structures.get(structure_id)
+
+    def structure_of(self, object_id: int) -> int | None:
+        """Which structure a block belongs to, if any."""
+        return self._structure_of.get(object_id)
+
+    def structure_for_cell(self, position: Position) -> int | None:
+        """The structure a new block at `position` would join: the one
+        an adjacent block belongs to (lowest id wins when several meet).
+        """
+        found = set()
+        for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
+            cell = Position(position.x + dx, position.y + dy)
+            object_id = self._occupancy.get(cell)
+            structure_id = self._structure_of.get(object_id) if object_id else None
+            if structure_id is not None:
+                found.add(structure_id)
+        return min(found) if found else None
+
+    def create_structure(self, *, owner: int | None, purpose: str | None) -> int:
+        """Start a new structure; emits STRUCTURE_CREATED."""
+        structure_id = self._next_structure_id
+        self._next_structure_id += 1
+        self._structures[structure_id] = Structure(
+            id=structure_id, owner=owner, purpose=purpose
+        )
+        self._add_event(
+            EventTypes.STRUCTURE_CREATED,
+            actor_id=owner,
+            target_id=structure_id,
+            payload={"owner": owner, "purpose": purpose},
+        )
+        return structure_id
+
+    def add_to_structure(self, structure_id: int, object_id: int) -> None:
+        """Attach a placed block to a structure."""
+        if structure_id not in self._structures:
+            raise ValueError(f"unknown structure {structure_id!r}")
+        self._structure_of[object_id] = structure_id
+        self._structures[structure_id].components.append(object_id)
+
+    def remove_block(self, object_id: int) -> None:
+        """Take a placed block out of the world and its structure."""
+        self.remove_object(object_id)
+        structure_id = self._structure_of.pop(object_id, None)
+        if structure_id is None:
+            return
+        structure = self._structures.get(structure_id)
+        if structure is None:  # pragma: no cover - map and rows agree
+            return
+        if object_id in structure.components:
+            structure.components.remove(object_id)
+        if not structure.components:
+            del self._structures[structure_id]  # an empty structure is gone
 
     # ------------------------------------------------------------------
     # Actions

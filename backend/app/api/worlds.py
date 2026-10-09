@@ -40,6 +40,17 @@ class BirthRequest(BaseModel):
     inheritance: dict | None = None
 
 
+class ActionRequest(BaseModel):
+    """An operator-injected action for one agent (S18).
+
+    The seam a console/experiment uses to command an agent directly —
+    the same validation path the agent's own decisions go through.
+    """
+
+    agent_id: int
+    action: dict
+
+
 def _host(request: Request, world_id: int) -> WorldHost:
     host = request.app.state.worlds.get(world_id)
     if host is None:
@@ -286,6 +297,63 @@ def get_agent_lineage(world_id: int, agent_id: int, request: Request) -> dict:
             }
         )
     return {"world_id": world_id, "agent_id": agent.agent_id, "chain": members}
+
+
+@router.post("/worlds/{world_id}/actions")
+def inject_action(world_id: int, payload: ActionRequest, request: Request) -> dict:
+    """S18: run one action for one agent (operator injection).
+
+    The action travels the same validated path as the agent's own
+    decisions — the world still decides everything. The response is the
+    ActionResult, so a caller sees exactly what the world made of it.
+    """
+    host = _host(request, world_id)
+    agent = next(
+        (a for a in host.engine.agents if a.agent_id == payload.agent_id), None
+    )
+    if agent is None:
+        raise HTTPException(
+            status_code=404, detail=f"agent {payload.agent_id} not in world {world_id}"
+        )
+    result = host.engine.world.execute_action(agent.agent_id, payload.action)
+    return {
+        "ok": result.ok,
+        "reason": result.reason,
+        "action": result.action,
+        "data": result.data,
+        "event_id": result.event.id,
+    }
+
+
+@router.get("/worlds/{world_id}/structures")
+def list_structures(world_id: int, request: Request) -> dict:
+    """S18: the world's structures — buildings as collections of blocks."""
+    host = _host(request, world_id)
+    structures = []
+    for structure in host.engine.world.structures():
+        components = []
+        for object_id in structure.components:
+            obj = host.engine.world.get_object(object_id)
+            if obj is None:  # pragma: no cover - structure and objects agree
+                continue
+            components.append(
+                {
+                    "object_id": obj.id,
+                    "type": obj.type,
+                    "position": obj.position.to_dict() if obj.position else None,
+                    "placed_by": obj.properties.get("placed_by"),
+                }
+            )
+        structures.append(
+            {
+                "id": structure.id,
+                "owner": structure.owner,
+                "purpose": structure.purpose,
+                "component_count": len(structure.components),
+                "components": components,
+            }
+        )
+    return {"world_id": world_id, "structures": structures}
 
 
 @router.post("/worlds/{world_id}/births", status_code=201)

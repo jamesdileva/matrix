@@ -83,6 +83,43 @@ def _step_options(dx: int, dy: int) -> tuple[str, ...]:
     return tuple(options)
 
 
+class BuilderPolicy:
+    """A constructing mind (S18): lay a wall of wood blocks, walking the
+    worksite as it goes.
+
+    Each tick: if the cell north is buildable and wood remains, build
+    there; otherwise step along the wall and look for the next free
+    cell. Blocks block movement, so the walk east along the worksite is
+    what lets a single builder lay a contiguous line — and contiguity is
+    exactly what structure grouping keys on. No architectural realism
+    attempted (guide §13).
+    """
+
+    def __init__(self, block: str = "wood_block") -> None:
+        self.block = block
+
+    def decide(self, observation: dict) -> dict:
+        cells = {c["direction"]: c for c in observation["cells"]}
+        carried = observation.get("resources", {})
+
+        north = cells.get("north", {})
+        if carried.get("wood", 0) > 0 and self._open(north):
+            return {"action": {"action": "build", "block": self.block, "direction": "north"}}
+
+        for direction in ("east", "south", "west"):
+            if self._open(cells.get(direction, {})):
+                return {"action": {"action": "move", "direction": direction}}
+        return {"action": {"action": "look"}}
+
+    @staticmethod
+    def _open(cell: dict) -> bool:
+        return (
+            cell.get("terrain") == "floor"
+            and "object" not in cell
+            and "entity" not in cell
+        )
+
+
 class GathererPolicy:
     """A resource-driven mind (S17): gather what is next to you, walk to
     the nearest source otherwise.

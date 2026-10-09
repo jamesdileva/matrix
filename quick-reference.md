@@ -148,6 +148,24 @@ Live scripted worlds rotate wander/forager/gatherer minds; the
 gatherer starts beside a tree and looks further (radius 4). Total
 resources are conserved: world object quantities + agent ledgers.
 
+## Building (S18+)
+
+`build` places a block on an adjacent cell, spending its recipe from the
+agent's resource ledger (wood_block/stone_block: 1 of wood/stone; door:
+1 wood) and occupying the cell — a wall is a wall. Blocks group into
+structures by adjacency (or an explicit `structure` id), each with id,
+owner, components and purpose. `remove` takes an adjacent block back,
+refunding its material; an emptied structure dissolves.
+
+```bash
+# command an agent directly (the console's seam; same validated path):
+curl -s -X POST localhost:8000/api/worlds/1/actions \
+     -H "Content-Type: application/json" \
+     -d '{"agent_id": 1, "action": {"action": "build", "block": "wood_block",
+          "direction": "north", "purpose": "shelter"}}'
+curl -s localhost:8000/api/worlds/1/structures     # the world's buildings
+```
+
 ## Lineage experiment (S11+)
 
 ```bash
