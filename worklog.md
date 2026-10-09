@@ -1595,4 +1595,4 @@ block types, the house experiment itself (S19).
   components on the grid, materials exactly accounted).
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `736594c` — S18: building system — blocks with material costs, structures, build/remove actions, operator injection [pushed]
