@@ -27,6 +27,17 @@ if TYPE_CHECKING:
     from app.simulation.actions import ActionResult
 
 DEFAULT_OBJECT_TYPES = ("tree", "stone", "food")
+# Initial resource quantity per object type (S17). Gathering moves one
+# unit per action; a source with none left is depleted and removed.
+DEFAULT_OBJECT_QUANTITIES = {"tree": 3, "stone": 3, "food": 2}
+# Which resource each object type is a source of (S17).
+RESOURCE_OF_OBJECT = {"tree": "wood", "stone": "stone", "food": "food"}
+WATER_RESOURCE = "water"
+
+
+def _resource_kind_of(object_type: str) -> str | None:
+    """The resource an object type yields, if any."""
+    return RESOURCE_OF_OBJECT.get(object_type)
 
 
 class Terrain(str, Enum):
@@ -150,6 +161,10 @@ class World:
         self._inventory: dict[int, list[int]] = {
             actor_id: list(items) for actor_id, items in (inventory or {}).items()
         }
+        # Resource ledger (S17): actor -> resource kind -> amount. The
+        # world is the only writer; gathering moves units from object
+        # quantities in, spending (S18) moves them out.
+        self._resources: dict[int, dict[str, int]] = {}
         self._events: list[Event] = list(events or [])
         self._next_event_id = (
             next_event_id
@@ -218,7 +233,13 @@ class World:
             for x in range(1, width - 1):
                 pos = Position(x, y)
                 if world.terrain[y][x] is Terrain.FLOOR and rng.random() < object_density:
-                    world.place_object(rng.choice(object_types), pos, created_tick=0)
+                    object_type = rng.choice(object_types)
+                    world.place_object(
+                        object_type,
+                        pos,
+                        properties={"quantity": DEFAULT_OBJECT_QUANTITIES.get(object_type, 1)},
+                        created_tick=0,
+                    )
         return world
 
     # ------------------------------------------------------------------
@@ -383,6 +404,68 @@ class World:
         return tuple(self._inventory.get(actor_id, ()))
 
     # ------------------------------------------------------------------
+    # Resources (S17)
+    # ------------------------------------------------------------------
+
+    def resource_count(self, actor_id: int, kind: str) -> int:
+        """How much of one resource an entity carries."""
+        return self._resources.get(actor_id, {}).get(kind, 0)
+
+    def resources(self, actor_id: int) -> dict:
+        """An entity's whole ledger (a copy)."""
+        return dict(self._resources.get(actor_id, {}))
+
+    def credit_resource(self, actor_id: int, kind: str, amount: int) -> None:
+        """Add resources to an entity's ledger (gathering lands here)."""
+        if amount < 0:
+            raise ValueError(f"credit must be positive, got {amount}")
+        ledger = self._resources.setdefault(actor_id, {})
+        ledger[kind] = ledger.get(kind, 0) + amount
+
+    def spend_resource(self, actor_id: int, kind: str, amount: int) -> bool:
+        """Remove resources if the ledger covers them; False otherwise."""
+        ledger = self._resources.get(actor_id, {})
+        if ledger.get(kind, 0) < amount:
+            return False
+        ledger[kind] -= amount
+        if ledger[kind] == 0:
+            del ledger[kind]
+        return True
+
+    def total_resources(self) -> dict:
+        """Every resource unit in the world: object quantities + ledgers.
+
+        The conservation invariant's witness — gathering moves units
+        between these two pools and creates nothing.
+        """
+        totals: dict[str, int] = {}
+        for obj in self._objects.values():
+            if obj.position is None:  # carried: not a world-side source
+                continue
+            kind = _resource_kind_of(obj.type)
+            if kind is not None:
+                totals[kind] = totals.get(kind, 0) + obj.properties.get("quantity", 0)
+        for ledger in self._resources.values():
+            for kind, amount in ledger.items():
+                totals[kind] = totals.get(kind, 0) + amount
+        return totals
+
+    def remove_object(self, object_id: int) -> None:
+        """Take a depleted source out of the world, with its event."""
+        obj = self._objects.get(object_id)
+        if obj is None:
+            raise ValueError(f"unknown object {object_id!r}")
+        position = obj.position
+        del self._objects[object_id]
+        if position is not None:
+            self._occupancy.pop(position, None)
+        self._add_event(
+            EventTypes.OBJECT_DEPLETED,
+            target_id=object_id,
+            payload={"type": obj.type, "position": position.to_dict() if position else None},
+        )
+
+    # ------------------------------------------------------------------
     # Actions
     # ------------------------------------------------------------------
 
@@ -456,7 +539,8 @@ class World:
             "tick": self.tick,
             "terrain": ["".join(t.char for t in row) for row in self.terrain],
             "objects": [
-                {"id": obj.id, "type": obj.type, "position": obj.position.to_dict()}
+                {"id": obj.id, "type": obj.type, "quantity": obj.properties.get("quantity"),
+                 "position": obj.position.to_dict()}
                 for obj in self.objects
                 if obj.position is not None
             ],

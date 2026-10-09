@@ -213,6 +213,7 @@ def get_agent(world_id: int, agent_id: int, request: Request) -> dict:
                 "timeout_seconds": settings.model_timeout_s,
             },
         },
+        "resources": host.engine.world.resources(agent.agent_id),
         "last_action": (
             {
                 "tick": memory[-1]["tick"],

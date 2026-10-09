@@ -26,12 +26,24 @@ from app.simulation.agent import Agent
 from app.simulation.bus import EventBus
 from app.simulation.engine import Engine
 from app.simulation.model_policy import ModelPolicy
-from app.simulation.policies import ForagerPolicy, WanderPolicy
+from app.simulation.policies import ForagerPolicy, GathererPolicy, WanderPolicy
 from app.simulation.world import Position, World
 
 BRAINS_SCRIPTED = "scripted"
 BRAINS_MODEL = "model"
 _BRAINS = (BRAINS_SCRIPTED, BRAINS_MODEL)
+
+
+def _gatherer_spot(world):
+    """A floor cell next to a tree — where the wood gatherer starts (S17)."""
+    for obj in world.objects:
+        if obj.type != "tree" or obj.position is None:
+            continue
+        for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
+            cell = Position(obj.position.x + dx, obj.position.y + dy)
+            if world.is_floor(cell) and world.object_at(cell) is None:
+                return cell
+    return None
 
 
 class WorldHost:
@@ -152,7 +164,10 @@ class WorldRegistry:
             # agent gets its own ModelPolicy, since a policy holds the
             # agent's in-flight decision (S08).
             provider = provider_from_settings(settings)
-        policies = [WanderPolicy(), ForagerPolicy()]
+        # Scripted minds rotate: a wanderer, a forager, a gatherer
+        # (S17 — the resource-driven one makes scarcity visible).
+        policies = [WanderPolicy(), ForagerPolicy(), GathererPolicy("wood")]
+        gatherer_spot = _gatherer_spot(world)
         spawned = 0
         for y in range(1, world.height - 1):
             for x in range(1, world.width - 1):
@@ -164,8 +179,15 @@ class WorldRegistry:
                         policy = ModelPolicy(provider)
                     else:
                         policy = policies[spawned % len(policies)]
+                    radius = 4 if isinstance(policy, GathererPolicy) else 2
+                    if isinstance(policy, GathererPolicy) and gatherer_spot is not None:
+                        # The resource-driven mind starts at its resource:
+                        # a blind local search on a sparse map finds
+                        # nothing (S17).
+                        pos = gatherer_spot
+                        gatherer_spot = None
                     engine.spawn_agent(
-                        Agent(agent_id=spawned + 1, policy=policy),
+                        Agent(agent_id=spawned + 1, policy=policy, observation_radius=radius),
                         pos,
                     )
                     spawned += 1

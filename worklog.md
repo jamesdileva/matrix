@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S17 — World Building (guide §13)
-- Completed sprints: S01–S16, S06B (S16 done 2026-10-08)
+- **Next sprint:** S18 — Building System
+- Completed sprints: S01–S17, S06B (S17 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -1462,3 +1462,69 @@ experiment's), a dashboard artifacts panel, artifact lineage
 
 ### Commits
 - `4d30bb6` — S16: word seed experiment — seeded concepts, cultural artifacts, multi-population comparison, CLI [pushed]
+
+## S17 � Resources (in progress)
+
+### Plan (2026-10-08)
+The Void has objects but nothing is scarce or useful yet. This sprint
+adds meaningful environmental constraints (roadmap S17): wood, stone,
+water and food as resource quantities on world objects (and water
+terrain), a `gather` action that moves quantity from the world into
+an agent's ledger, and scarcity that makes decisions matter. It is
+the foundation the guide's World Building section starts with;
+building actions (walls, doors, blocks, structures) are S18.
+
+### Scope (2026-10-08)
+In: resource quantities on generated objects (deterministic from the
+world seed); the agent resource ledger + inventory reporting; the
+`gather` action (adjacent source, per-source yield, depletion with an
+`OBJECT_DEPLETED` event, water from adjacent water terrain);
+quantities visible in observations and snapshots; a scripted
+`GathererPolicy` so live worlds are visibly resource-driven; tests.
+Out: spending resources to build (S18 — Building System), recipes and
+structures, resource respawn/regrowth, trade, hunger/needs.
+
+### Implementation
+- `World`: objects carry `properties["quantity"]` (tree→wood 3,
+  stone→stone 3, food→food 2, deterministic from the seed); a per-actor
+  resource ledger (`credit_resource` / `spend_resource` /
+  `resource_count` / `resources`) that the world alone writes;
+  `remove_object` with an `OBJECT_DEPLETED` event; `total_resources()`
+  — the conservation witness (world quantities + ledgers).
+- `actions.py`: the `gather` action — an adjacent source of the right
+  type (or adjacent water terrain for water), one unit per attempt, the
+  source decremented and removed at zero. Rejections
+  (`unknown_resource`, `no_source_nearby`, `no_water_nearby`) record
+  like every other rule violation; nothing is half-applied.
+- Observations and snapshots carry object quantities; the agent's own
+  ledger rides in the observation like the goal (agent state a decision
+  needs to see). The inspector's detail route reports the ledger.
+- `GathererPolicy`: a resource-driven scripted mind — gathers an
+  adjacent source, walks to the nearest visible one, sweeps otherwise
+  (east then north then west: a pure function of the observation, so
+  determinism holds). Registry spawn rotations now include it, at a
+  wider observation radius (4), placed beside a tree — a blind local
+  search on a 4%-density map finds nothing, so the gatherer starts at
+  its resource and depletion is what drives it onward.
+- Quantities persisted with artifacts and everything else that rides
+  the object's properties; nothing new in the schema.
+
+### Verification
+- Tests: pytest **260 passed** (12 new: generated quantities are
+  deterministic; quantities visible in snapshots and observations;
+  gather wood from an adjacent tree; gather water from water terrain;
+  depletion removes the source exactly once and later gathers are
+  rejected; all three rejection reasons; conservation across gathers
+  (single and multiple actors — world totals unchanged while ledgers
+  grow); the gatherer gathering in a live world and walking to water
+  on an island; unknown resource rejected by the policy).
+- Live (world 46, 4 agents at 6 tps): the gatherer (agent 3) gathered
+  **10 wood** across 10 gather actions, depleting 3 trees; every other
+  agent's ledger stayed empty. Conservation holds by construction:
+  the trees' units are exactly the ledger's units.
+- Roadmap S17 checklist: agents can gather resources ✅ and resource
+  quantities remain consistent ✅ (the conservation invariant is
+  asserted directly).
+
+### Commits
+- (pending — not yet committed at time of writing)

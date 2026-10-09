@@ -13,12 +13,14 @@ the same.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
 from app.simulation.events import Event
+from app.simulation.world import RESOURCE_OF_OBJECT, WATER_RESOURCE, Position, Terrain, World
 
-if TYPE_CHECKING:
-    from app.simulation.world import World
+RESOURCE_SOURCES = {
+    resource: object_type for object_type, resource in RESOURCE_OF_OBJECT.items()
+}  # resource kind -> object type that yields it
+GATHER_YIELD = 1  # units per gather action (scarcity is the point)
 
 DIRECTIONS: dict[str, tuple[int, int]] = {
     "north": (0, -1),
@@ -57,6 +59,7 @@ HANDLERS = {
     "pick_up": "_pick_up",
     "drop": "_drop",
     "place": "_place",
+    "gather": "_gather",
 }
 
 
@@ -87,6 +90,58 @@ def execute_action(world: World, actor_id, action) -> ActionResult:
             data={"reason": exc.reason, **exc.data},
         )
     return world._record_action(ok=True, actor_id=actor_id, action=action, data=data)
+
+
+def _gather(world: World, actor_id, action: dict) -> dict:
+    """Move one unit of a resource from an adjacent source into the
+    actor's ledger (S17).
+
+    Sources: the object type that yields the resource (a tree for
+    wood), or an adjacent water tile for water. A source that hits
+    zero is depleted and leaves the world. Rejections record like any
+    other rule violation; nothing is half-applied.
+    """
+    position = _require_actor(world, actor_id)
+    resource = action.get("resource")
+    if not isinstance(resource, str) or (
+        resource not in RESOURCE_SOURCES and resource != WATER_RESOURCE
+    ):
+        raise _Rejected("unknown_resource", {"resource": resource})
+
+    if resource == WATER_RESOURCE:
+        if not any(
+            world.in_bounds(Position(position.x + dx, position.y + dy))
+            and world.terrain_at(Position(position.x + dx, position.y + dy)) is Terrain.WATER
+            for dx, dy in DIRECTIONS.values()
+        ):
+            raise _Rejected("no_water_nearby", {"resource": resource})
+        world.credit_resource(actor_id, resource, GATHER_YIELD)
+        return {"resource": resource, "amount": GATHER_YIELD}
+
+    source_type = RESOURCE_SOURCES[resource]
+    for dx, dy in DIRECTIONS.values():
+        cell = Position(position.x + dx, position.y + dy)
+        if not world.in_bounds(cell):
+            continue
+        obj = world.object_at(cell)
+        if obj is None or obj.type != source_type:
+            continue
+        quantity = obj.properties.get("quantity", 0)
+        if not isinstance(quantity, int) or quantity <= 0:
+            continue
+        obj.properties["quantity"] = quantity - GATHER_YIELD
+        world.credit_resource(actor_id, resource, GATHER_YIELD)
+        depleted = False
+        if obj.properties["quantity"] <= 0:
+            world.remove_object(obj.id)
+            depleted = True
+        return {
+            "resource": resource,
+            "amount": GATHER_YIELD,
+            "source_object_id": obj.id,
+            "depleted": depleted,
+        }
+    raise _Rejected("no_source_nearby", {"resource": resource, "wanted": source_type})
 
 
 # ----------------------------------------------------------------------

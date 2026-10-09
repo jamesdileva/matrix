@@ -117,7 +117,11 @@ class Agent:
                 cell["terrain"] = world.terrain_at(cell_pos).value
                 obj = world.object_at(cell_pos)
                 if obj is not None:
-                    cell["object"] = {"id": obj.id, "type": obj.type}
+                    cell["object"] = {
+                        "id": obj.id,
+                        "type": obj.type,
+                        "quantity": obj.properties.get("quantity"),
+                    }
                 entity = world.entity_at(cell_pos)
                 if entity is not None and entity != self.agent_id:
                     cell["entity"] = entity
@@ -135,6 +139,7 @@ class Agent:
                 if obj is not None:
                     nearby.append(
                         {"kind": "object", "id": obj.id, "type": obj.type,
+                         "quantity": obj.properties.get("quantity"),
                          "position": cell_pos.to_dict(), "distance": distance}
                     )
                 entity = world.entity_at(cell_pos)
@@ -156,6 +161,10 @@ class Agent:
             "nearby": nearby,
             "inventory": list(world.inventory(self.agent_id)),
             "memory": self.memory.recent(),
+            # The resource ledger is agent state, like the goal (S17):
+            # a decision that cannot see what it carries cannot weigh
+            # gathering against spending.
+            "resources": world.resources(self.agent_id),
             # Inherited culture (S10): the agent sees what it received
             # at birth, because deciding what to pass onward requires
             # knowing what was passed to you (guide §11).

@@ -138,6 +138,16 @@ the backend. `phi4-mini` is the speed-first alternative; qwen3.x
 defaults to slow "thinking" mode and is not recommended for the live
 loop.
 
+## Resources (S17+)
+
+Objects carry quantities (tree→wood 3, stone→stone 3, food→food 2);
+water is gathered from adjacent water terrain. The `gather` action
+moves one unit per attempt into the gatherer's ledger; a source that
+hits zero is depleted and leaves the world (OBJECT_DEPLETED event).
+Live scripted worlds rotate wander/forager/gatherer minds; the
+gatherer starts beside a tree and looks further (radius 4). Total
+resources are conserved: world object quantities + agent ledgers.
+
 ## Lineage experiment (S11+)
 
 ```bash
