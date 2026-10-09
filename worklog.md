@@ -1527,4 +1527,4 @@ structures, resource respawn/regrowth, trade, hunger/needs.
   asserted directly).
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `d0ee4e3` — S17: resources — quantities, gather action, depletion, ledger, conservation, GathererPolicy [pushed]
