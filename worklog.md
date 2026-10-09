@@ -1312,4 +1312,4 @@ summary), agent history across worlds, editing agent state.
   the viewport or the roster).
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `24d0c36` — S14: agent inspector — detail route, viewport picking, roster, inspector panel [pushed]
