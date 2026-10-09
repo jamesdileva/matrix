@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S16 — Word Seed Experiment
-- Completed sprints: S01–S15, S06B (S15 done 2026-10-08)
+- **Next sprint:** S17 — World Building (guide §13)
+- Completed sprints: S01–S16, S06B (S16 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -1385,3 +1385,80 @@ lineage, semantic similarity beyond the S11 lexical proxy.
 
 ### Commits
 - `72b7aa1` — S15: lineage explorer — ancestry feed with drift, navigable rail, expanding-ring birth placement fix [pushed]
+
+## S16 � Word Seed Experiment (in progress)
+
+### Plan (2026-10-08)
+The first divergent-idea experiment (guide �12): agents receive seed
+words, produce three associated concepts, and create one cultural
+artifact � a story, theory, rule, invention, game, poem, or building
+concept � stored as a cultural object. The verification is the
+interesting part: run multiple populations from identical seeds and
+compare outputs. Scripted calibrations give the control (identical
+seeds -> identical artifacts) and a deterministic divergence case;
+a live mode runs the same task through a real model, where identical
+seeds are expected to genuinely diverge.
+
+### Scope (2026-10-08)
+In: `app/experiments/wordseed.py` — the runner (seeded agents,
+concept generation, artifact creation, storage as world objects +
+agent rows + `ARTIFACT_CREATED` timeline events), the comparison
+across identically-seeded populations (distinct variants, kinds,
+concept-set Jaccard), a JSON report + export, and a
+`python -m app.experiments.wordseed` CLI; scripted / scatter / model
+modes; tests.
+Out: artifacts as world-building material (guide §13 is the next
+experiment's), a dashboard artifacts panel, artifact lineage
+(a child inheriting an artifact), semantic scoring of artifact text.
+
+### Implementation
+- `backend/app/experiments/wordseed.py` — the runner:
+  - Seeded agents: one seed word per agent, spawned into a flat world
+    (row-major), one agent per seed.
+  - Concepts + artifact: the guide's task. Scripted calibrations
+    derive deterministically (``scripted`` = pure function of the seed
+    word — the control; ``scatter`` = the same shape salted per
+    population — deterministic divergence). Model mode asks a live
+    provider through the S07 seam, parsing concepts + artifact JSON
+    with the same tolerance rules as decisions (``extract_json_object``
+    promoted public in ``models/decision.py`` for exactly this reuse).
+  - Storage as cultural objects: the artifact becomes a world object
+    at the agent's cell (``kind`` as the object type, the full artifact
+    in properties), an `ARTIFACT_CREATED` timeline event, and the
+    agent row's ``cultural_artifacts`` — three durable forms, same as
+    every other fact about the world.
+  - Comparison: per-seed variants, kinds, concept-set Jaccard across
+    the identically-seeded populations, plus identical/divergent seed
+    lists and unique-artifact counts.
+- Runner architecture note: one event loop for the whole run. The
+  first live attempt crashed with ``Event loop is closed`` — the
+  provider's long-lived ``httpx.AsyncClient`` cannot survive the
+  per-agent ``asyncio.run`` calls the first draft made; the S11
+  runner's single-loop shape was the correct pattern.
+
+### Verification
+- Tests: pytest **248 passed** (14 new: the control's identical
+  artifacts across populations with per-seed jaccard 1.0; the guide's
+  artifact shape (three concepts, one artifact); determinism of both
+  calibrations; scatter divergence (9 variants over 3 populations,
+  reproducible); storage as agent rows, timeline events and world
+  objects; model mode through the provider seam with correct parsing;
+  loud failure on unusable model output; unknown mode / zero
+  populations rejected; the experiment row completed; JSON export).
+- Live control (dev DB, scripted): 2 populations × 5 seeds = 10
+  artifacts, 5 unique — **every identically-seeded pair identical**,
+  each seed resolving to a distinct artifact kind.
+- Live model run (`--mode model`, qwen2.5:7b-instruct, 10 provider
+  calls): **10 artifacts, 10 unique — all five seeds divergent**,
+  concept-set Jaccard 0.2–0.5. The guide's question answered: simple
+  seeds *do* create divergent conceptual structures. Sampled: the
+  seed "light" became the theory "The Luminous Path" (guidance,
+  brightness, truth) in population 1 and the poem "The Lighthouse's
+  Song" (brightness, guidance, hope) in population 2; "water" became
+  the theory "The Hydrologic Cycle" and the game "EcoPond".
+- Roadmap S16 checklist: multiple populations from identical seeds
+  run and outputs compared ✅ (control: identical; live: divergent —
+  both verified).
+
+### Commits
+- (pending — not yet committed at time of writing)

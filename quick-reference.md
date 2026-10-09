@@ -155,6 +155,24 @@ cd backend
 #   app.experiments.replay_lineage_experiment(SessionLocal, experiment_id)
 ```
 
+## Word-seed experiment (S16+)
+
+```bash
+cd backend
+.venv/Scripts/python -m app.experiments.wordseed                          # control: 5 seeds, 2 populations
+.venv/Scripts/python -m app.experiments.wordseed --mode scatter           # deterministic divergence
+.venv/Scripts/python -m app.experiments.wordseed --mode model --seeds light,water,stone,echo,void
+.venv/Scripts/python -m app.experiments.wordseed --export out.json
+```
+
+Each agent gets a seed word, produces three associated concepts, and
+creates one cultural artifact (story/theory/rule/invention/game/poem/
+building concept) — stored as a world object, a timeline
+(`ARTIFACT_CREATED`) event, and on the agent's row. Multiple
+populations from identical seeds are compared: the scripted control
+agrees exactly; the live model diverges (measured by per-seed variants
+and concept-set Jaccard).
+
 Measures retained/lost/altered/new facts, contradictions, message
 lengths, and token-Jaccard similarity per generation. `--mode model`
 takes ~1 model call per generation (100 calls for the full run) —

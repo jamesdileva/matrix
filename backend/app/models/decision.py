@@ -88,7 +88,7 @@ def parse_decision(raw: str | dict) -> Decision:
     if isinstance(raw, dict):
         data = raw
     elif isinstance(raw, str):
-        data = _extract_json(raw)
+        data = extract_json_object(raw)
     else:
         raise DecisionError("not_json", f"expected text or dict, got {type(raw).__name__}")
 
@@ -129,12 +129,15 @@ def _optional_str(data: dict, key: str) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _extract_json(text: str) -> dict:
+def extract_json_object(text: str) -> dict:
     """Best-effort JSON object extraction from raw model text.
 
     Models wrap JSON in markdown fences or surround it with prose; both
     are normal, not grounds for rejection. Tries, in order: the whole
     string (fences stripped), then the outermost ``{...}`` span.
+
+    Public: the S16 word-seed experiment asks models for a different
+    JSON shape (concepts + artifact) through the same tolerance rules.
     """
     stripped = _strip_fences(text.strip())
     for candidate in (stripped, _outermost_span(stripped)):

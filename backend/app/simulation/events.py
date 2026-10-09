@@ -32,6 +32,8 @@ class EventTypes:
     # S09: lineage. Parent, child and generation are one replayable
     # fact about the world, same as everything else.
     AGENT_BORN = "AGENT_BORN"
+    # S16: culture. A produced artifact is a replayable fact too.
+    ARTIFACT_CREATED = "ARTIFACT_CREATED"
 
 
 @dataclass(frozen=True)
