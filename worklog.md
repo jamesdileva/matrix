@@ -1461,4 +1461,4 @@ experiment's), a dashboard artifacts panel, artifact lineage
   both verified).
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `4d30bb6` — S16: word seed experiment — seeded concepts, cultural artifacts, multi-population comparison, CLI [pushed]
