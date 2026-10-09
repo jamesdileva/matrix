@@ -22,11 +22,15 @@ const OBJECT_COLORS: Record<string, string> = {
   food: "#e0b13c",
 };
 
+const CELL = 10; // draw and pick share this
+
 type Props = {
   state: WorldState | null;
+  selectedAgentId: number | null;
+  onSelectAgent: (agentId: number | null) => void;
 };
 
-export function WorldViewport({ state }: Props) {
+export function WorldViewport({ state, selectedAgentId, onSelectAgent }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -35,7 +39,7 @@ export function WorldViewport({ state }: Props) {
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    const cell = 10;
+    const cell = CELL;
     const width = state.width;
     const height = state.height;
     canvas.width = width * cell;
@@ -57,24 +61,45 @@ export function WorldViewport({ state }: Props) {
       context.fillRect(object.position.x * cell + 2, object.position.y * cell + 2, cell - 5, cell - 5);
     }
 
-    context.fillStyle = colors.accent;
-    for (const entity of Object.values(state.entities)) {
+    const entityAt = new Map(
+      Object.entries(state.entities).map(([id, position]) => [`${position.x},${position.y}`, id]),
+    );
+    for (const [cellKey, id] of entityAt) {
+      const [x, y] = cellKey.split(",").map(Number);
+      const isSelected = Number(id) === selectedAgentId;
+      context.fillStyle = isSelected ? colors.warn : colors.accent;
       context.beginPath();
-      context.arc(entity.x * cell + cell / 2, entity.y * cell + cell / 2, cell / 2 - 1, 0, Math.PI * 2);
+      context.arc(x * cell + cell / 2, y * cell + cell / 2, cell / 2 - 1, 0, Math.PI * 2);
       context.fill();
     }
-  }, [state]);
+  }, [state, selectedAgentId]);
+
+  // Screen-space picking, the web-side twin of the Godot client's:
+  // click a cell; if an entity stands there, the inspector opens.
+  function handleClick(event: React.MouseEvent<HTMLCanvasElement>) {
+    if (!state) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const scaleX = event.currentTarget.width / rect.width;
+    const scaleY = event.currentTarget.height / rect.height;
+    const x = Math.floor(((event.clientX - rect.left) * scaleX) / CELL);
+    const y = Math.floor(((event.clientY - rect.top) * scaleY) / CELL);
+    const found = Object.entries(state.entities).find(
+      ([, position]) => position.x === x && position.y === y,
+    );
+    onSelectAgent(found ? Number(found[0]) : null);
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
       <canvas
         ref={canvasRef}
         data-testid="world-viewport"
-        style={{ border: `1px solid ${colors.border}`, borderRadius: 3, maxWidth: "100%", imageRendering: "pixelated" }}
+        onClick={handleClick}
+        style={{ border: `1px solid ${colors.border}`, borderRadius: 3, maxWidth: "100%", imageRendering: "pixelated", cursor: "crosshair" }}
       />
       <p style={{ margin: 0, fontSize: "0.7rem", color: colors.dim }}>
-        3D view: launch <code>tools/godot.cmd --path world-client</code> (backend on :8000) —
-        world truth stays server-side; this canvas is the web-side eye.
+        click an agent to inspect it · 3D view: launch <code>tools/godot.cmd --path world-client</code> (backend on
+        :8000) — world truth stays server-side; this canvas is the web-side eye.
       </p>
     </div>
   );

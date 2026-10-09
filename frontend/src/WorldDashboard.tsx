@@ -5,13 +5,14 @@
 // events — the same timeline the database persists.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AgentInspector } from "./AgentInspector";
 import { api } from "./api";
 import type { AgentSummary, WorldEvent, WorldState } from "./api";
 import { Controls } from "./Controls";
 import { EventStream } from "./EventStream";
 import { PopulationStats } from "./PopulationStats";
 import { WorldViewport } from "./WorldViewport";
-import { colors, headingStyle, panelStyle } from "./theme";
+import { buttonStyle, colors, headingStyle, panelStyle } from "./theme";
 
 type Props = {
   worldId: number;
@@ -22,6 +23,7 @@ export function WorldDashboard({ worldId, onWorldsChanged }: Props) {
   const [state, setState] = useState<WorldState | null>(null);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [events, setEvents] = useState<WorldEvent[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const sinceId = useRef(0);
   const worldIdRef = useRef(worldId);
@@ -64,6 +66,7 @@ export function WorldDashboard({ worldId, onWorldsChanged }: Props) {
       worldIdRef.current = worldId;
       sinceId.current = 0;
       setEvents([]);
+      setSelectedAgent(null);
     }
     void refreshState();
     void refreshEvents();
@@ -102,10 +105,22 @@ export function WorldDashboard({ worldId, onWorldsChanged }: Props) {
         {error && <span style={{ color: colors.error, fontSize: "0.7rem" }}>{error}</span>}
       </header>
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 1fr) minmax(280px, 1fr)", gap: "0.75rem" }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: selectedAgent === null
+            ? "minmax(280px, 1fr) minmax(280px, 1fr)"
+            : "minmax(260px, 1fr) minmax(240px, 320px) minmax(300px, 360px)",
+          gap: "0.75rem",
+        }}
+      >
         <section style={panelStyle} aria-label="world viewport">
           <h2 style={headingStyle}>world viewport</h2>
-          <WorldViewport state={state} />
+          <WorldViewport
+            state={state}
+            selectedAgentId={selectedAgent}
+            onSelectAgent={setSelectedAgent}
+          />
         </section>
         <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", minWidth: 0 }}>
           <PopulationStats agents={agents} />
@@ -115,7 +130,48 @@ export function WorldDashboard({ worldId, onWorldsChanged }: Props) {
             onChanged={() => void refreshState()}
             onStopped={onWorldsChanged}
           />
+          <section style={panelStyle} aria-label="roster">
+            <h2 style={headingStyle}>roster — click to inspect</h2>
+            <ul
+              style={{
+                listStyle: "none",
+                margin: 0,
+                padding: 0,
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.2rem",
+                maxHeight: 220,
+                overflowY: "auto",
+              }}
+            >
+              {agents.map((agent) => (
+                <li key={agent.id}>
+                  <button
+                    style={{
+                      ...buttonStyle,
+                      width: "100%",
+                      textAlign: "left",
+                      borderColor: selectedAgent === agent.id ? colors.accent : colors.borderBright,
+                    }}
+                    onClick={() =>
+                      setSelectedAgent(selectedAgent === agent.id ? null : agent.id)
+                    }
+                  >
+                    #{agent.id} gen {agent.generation} · {agent.policy}
+                    {agent.goal ? ` · ${agent.goal}` : ""}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
         </div>
+        {selectedAgent !== null && (
+          <AgentInspector
+            worldId={worldId}
+            agentId={selectedAgent}
+            onClose={() => setSelectedAgent(null)}
+          />
+        )}
       </div>
 
       <EventStream events={events} />

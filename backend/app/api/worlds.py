@@ -9,6 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from app.config.settings import settings
 from app.host import BRAINS_MODEL, BRAINS_SCRIPTED, WorldHost
 from app.simulation.errors import BirthError
 from app.simulation.events import EventTypes
@@ -161,6 +162,72 @@ def list_agents(world_id: int, request: Request) -> dict:
         for agent in host.engine.agents
     ]
     return {"world_id": world_id, "agents": agents}
+
+
+@router.get("/worlds/{world_id}/agents/{agent_id}")
+def get_agent(world_id: int, agent_id: int, request: Request) -> dict:
+    """S14: one organism, examined — the agent inspector's feed.
+
+    Identity, lineage in both directions (parent and children), short
+    memory, the inherited package, the last action with its outcome,
+    and compute state (decisions this agent made in the retained
+    timeline, plus the provider envelope it calls through). Budget
+    *enforcement* is the cognition scheduler's job (guide §25); this
+    reports what is configured and what was spent.
+    """
+    host = _host(request, world_id)
+    agent = next((a for a in host.engine.agents if a.agent_id == agent_id), None)
+    if agent is None:
+        raise HTTPException(status_code=404, detail=f"agent {agent_id} not in world {world_id}")
+
+    response = getattr(agent.policy, "last_response", None)
+    model_calls = sum(
+        1
+        for event in host.engine.world.events
+        if event.type == EventTypes.MODEL_DECISION and event.actor_id == agent.agent_id
+    )
+    memory = agent.memory.recent()
+    children = [a.agent_id for a in host.engine.agents if a.parent_id == agent.agent_id]
+
+    return {
+        "id": agent.agent_id,
+        "status": agent.status,
+        "position": agent.position.to_dict() if agent.position else None,
+        "goal": agent.goal,
+        "generation": agent.generation,
+        "parent_id": agent.parent_id,
+        "children": children,
+        "population_id": agent.population_id,
+        "policy": "model" if hasattr(agent.policy, "refresh") else "scripted",
+        "provider": {
+            "provider": getattr(response, "provider", None) if response is not None else None,
+            "model": getattr(response, "model", None) if response is not None else None,
+        },
+        "compute": {
+            "model_calls": model_calls,  # within the retained event window
+            "envelope": {
+                "temperature": settings.model_temperature,
+                "max_tokens": settings.model_max_tokens,
+                "timeout_seconds": settings.model_timeout_s,
+            },
+        },
+        "last_action": (
+            {
+                "tick": memory[-1]["tick"],
+                "action": memory[-1]["action"],
+                "ok": memory[-1]["ok"],
+                "reason": memory[-1]["reason"],
+            }
+            if memory
+            else None
+        ),
+        "memory": memory,
+        "inheritance": {
+            "traits": agent.traits,
+            "knowledge": agent.knowledge,
+            "cultural_artifacts": agent.cultural_artifacts,
+        },
+    }
 
 
 @router.post("/worlds/{world_id}/births", status_code=201)

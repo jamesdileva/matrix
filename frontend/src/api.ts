@@ -54,6 +54,41 @@ export type WorldEvent = {
   payload: Record<string, unknown>;
 };
 
+export type AgentDetail = {
+  id: number;
+  status: string;
+  position: { x: number; y: number } | null;
+  goal: string | null;
+  generation: number;
+  parent_id: number | null;
+  children: number[];
+  population_id: number | null;
+  policy: "model" | "scripted";
+  provider: { provider: string | null; model: string | null };
+  compute: {
+    model_calls: number;
+    envelope: { temperature: number; max_tokens: number | null; timeout_seconds: number };
+  };
+  last_action: {
+    tick: number;
+    action: Record<string, unknown>;
+    ok: boolean;
+    reason: string | null;
+  } | null;
+  memory: {
+    tick: number;
+    action: Record<string, unknown>;
+    ok: boolean;
+    reason: string | null;
+    goal: string | null;
+  }[];
+  inheritance: {
+    traits: Record<string, unknown>;
+    knowledge: string[];
+    cultural_artifacts: unknown[];
+  };
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
   if (!response.ok) {
@@ -85,6 +120,8 @@ export const api = {
   world: (id: number) => request<WorldState>(`/api/worlds/${id}`),
   agents: (id: number) =>
     request<{ world_id: number; agents: AgentSummary[] }>(`/api/worlds/${id}/agents`),
+  agentDetail: (id: number, agentId: number) =>
+    request<AgentDetail>(`/api/worlds/${id}/agents/${agentId}`),
   events: (id: number, sinceId: number, limit = 100) =>
     request<{ world_id: number; events: WorldEvent[] }>(
       `/api/worlds/${id}/events?since_id=${sinceId}&limit=${limit}`,

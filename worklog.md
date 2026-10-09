@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S14 — Agent Inspector
-- Completed sprints: S01–S13, S06B (S13 done 2026-10-08)
+- **Next sprint:** S15 — Lineage Explorer
+- Completed sprints: S01–S14, S06B (S14 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -1249,3 +1249,67 @@ client stays a desktop app per D001), auth.
 ### Commits
 - `4a6f11c` — S13: observer dashboard — populations feed, viewport/stats/event-stream/controls console, preview proxy [pushed]
 - `d3cb458` — gitignore: SQLite journal/wal artifacts (flood.db-journal committed by accident in S13) [pushed]
+
+## S14 � Agent Inspector (in progress)
+
+### Plan (2026-10-08)
+The dashboard (S13) shows the population; this sprint lets the human
+open an organism. Clicking an agent � in the world viewport or the
+population list � shows its identity, lineage (generation, parent,
+children), short memory, inherited knowledge/traits/artifacts, its
+current action with outcome, and its compute state. One detail route
+feeds the inspector; everything shown is real engine state.
+
+### Scope (2026-10-08)
+In: `GET /api/worlds/{id}/agents/{agent_id}` — the deep detail
+(memory, knowledge, traits, artifacts, lineage both directions,
+last action + outcome, provider/model, model-call count from the
+live timeline, the configured request envelope); viewport canvas
+clicking (screen-space picking, same idea as the Godot client's);
+clickable population list; the inspector panel in the console
+(polling while an agent is selected); tests.
+Out: per-agent budget *enforcement* (guide §25 — the cognition
+scheduler's job; here the envelope is displayed, not enforced),
+full observation dumps in the UI (the memory list is the readable
+summary), agent history across worlds, editing agent state.
+
+### Implementation
+- Backend: `GET /api/worlds/{id}/agents/{agent_id}` — reads the live
+  engine agent: identity (status, position, goal, policy kind),
+  lineage both directions (generation, parent, children, population),
+  the last action with its ok/reason from memory, the full bounded
+  memory ring, the inherited package (traits, knowledge, artifacts),
+  and compute state — decisions this agent made in the retained
+  timeline plus the provider it calls through and the configured
+  envelope. Budget enforcement remains the scheduler's (guide §25);
+  the envelope is reported, not policed.
+- Frontend: `AgentInspector.tsx` — the panel, polling the detail route
+  at 1 Hz while an agent stays selected, with lineage, current action,
+  memory, inherited culture (knowledge listed verbatim), and compute.
+- Selection: the viewport canvas does screen-space picking (click a
+  cell; if an entity stands there the inspector opens — the web-side
+  twin of the Godot client's picker, no physics needed), and the new
+  roster panel lists every agent click-to-inspect. The third grid
+  column appears only while an agent is selected; the selected agent
+  renders amber in the viewport.
+
+### Verification
+- Tests: pytest **226 passed** (7 new: founder identity with empty
+  history; different agents showing different state (distinct
+  positions, per-agent memory, neither containing the other's);
+  lineage both directions with the parent→child message as the
+  child's first recollection; rejected/accepted last action shape;
+  model-world provider reporting after a decision; 404s for unknown
+  agent and world).
+- Live: world 34 (scripted) — agents 1 and 2 inspected with distinct
+  positions and separate memory rings; a birth produced child 3 whose
+  detail showed generation 1, parent 1, two inherited facts, first
+  memory "go on", and the parent now listing child 3. A model world
+  (mock brains) reported policy=model, provider mock/mock-1, one
+  decision counted, envelope temp 0.7 / max_tokens 512.
+- Roadmap S14 checklist: selecting different agents shows correct
+  state ✅ (unit + live; the browser pass is yours — click an agent in
+  the viewport or the roster).
+
+### Commits
+- (pending — not yet committed at time of writing)
