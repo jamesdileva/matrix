@@ -1676,4 +1676,4 @@ not handles).
   engine ✅ (same runner, same scoring, only the policy swapped).
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `eb4818c` — S19: house experiment — "Build a house." scenario engine, scripted calibration, structure merging, model mode [pushed]
