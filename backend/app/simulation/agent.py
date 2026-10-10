@@ -161,6 +161,10 @@ class Agent:
             "nearby": nearby,
             "inventory": list(world.inventory(self.agent_id)),
             "memory": self.memory.recent(),
+            # Local speech (S21): what this agent can hear, within the
+            # world's speech radius. Communication became real here —
+            # before, this list was empty forever.
+            "messages": world.messages_for(self.agent_id),
             # The resource ledger is agent state, like the goal (S17):
             # a decision that cannot see what it carries cannot weigh
             # gathering against spending.
@@ -171,7 +175,6 @@ class Agent:
             "traits": copy.deepcopy(self.traits),
             "knowledge": list(self.knowledge),
             "cultural_artifacts": list(self.cultural_artifacts),
-            "messages": [],  # communication arrives in later sprints
         }
 
     def decide(self) -> dict:

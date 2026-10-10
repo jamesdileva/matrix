@@ -37,6 +37,8 @@ class EventTypes:
     ARTIFACT_CREATED = "ARTIFACT_CREATED"
     # S18: building. A structure is a replayable fact too.
     STRUCTURE_CREATED = "STRUCTURE_CREATED"
+    # S21: speech. Something said aloud, by anyone, is a fact too.
+    SPEECH = "SPEECH"
 
 
 @dataclass(frozen=True)

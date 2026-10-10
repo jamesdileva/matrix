@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S20 — Human Avatar (in progress)
-- Completed sprints: S01–S19, S06B (S19 done 2026-10-08)
+- **Next sprint:** S22 — Social Interaction
+- Completed sprints: S01–S21, S06B (S21 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -1740,3 +1740,70 @@ participants.
 
 ### Commits
 - `09d797a` — S20: human avatar — participant entity, Godot participant mode, console mode switch, participant smoke [pushed]
+
+## S21 � Human-Agent Conversation (in progress)
+
+### Plan (2026-10-08)
+Talk to the Flood (roadmap S21). Speech becomes a real world action:
+anyone (participant or agent) can say something, it lands on the
+timeline as a SPEECH event, and it is heard only nearby � local
+speech, in the world's own terms. The participant targets an agent
+within earshot, the agent's next decision sees the message in its
+observation, and its reply comes back through the same decision
+contract's message field. Conversation logging is the timeline itself
+plus a filtered view of it. The console gains a chat box on the
+inspector; the Godot client speaks through the same API.
+
+### Scope (2026-10-08)
+In: the `say` action (participant or agent) with a SPEECH event and a
+speech radius; messages surfacing in agent observations; the
+`POST /worlds/{id}/chat` conversation route (targeting, earshot
+validation, immediate model reply, response payload); a
+`GET /worlds/{id}/conversations` log; the console's chat UI on the
+inspector; event formatting for SPEECH/AGENT_MESSAGE in the Godot
+client; tests.
+Out: agent-initiated conversation (agents speaking first — that is
+S22 social interaction), group chat and channels, translation or
+memory of past conversations, agent-to-agent dialogue rules.
+
+### Implementation
+- `World`: `say` (a validated action for *any* entity) records a SPEECH
+  event and enters a bounded rolling buffer; `messages_for` is the ear —
+  recent speech within ``SPEECH_RADIUS`` (6 cells, Manhattan), never
+  including the listener itself. The observation's `messages` list —
+  a placeholder saying "communication arrives in later sprints" since
+  S06 — is now real.
+- `WorldHost.converse`: the conversation. The participant speaks
+  through the same validated `say` action as anyone; the target must be
+  within earshot (400 otherwise); the agent then decides *now*, its
+  observation carrying what was said, and its reply — the decision
+  contract's `message` field — is recorded as speech and returned.
+  A scripted agent hears and has nothing to say; the speech is still
+  recorded, the reply simply absent.
+- The action-injection route now accepts any world entity (the
+  participant included), since speech is not agent-only.
+- The decision contract's system prompt gained the exchange rule: if
+  the observation's `messages` carries someone speaking, the reply
+  belongs in `message` — the first live run showed why (the model
+  answered with only an action and the reply came back empty).
+
+### Verification
+- Tests: pytest **310 passed** (9 new: a SPEECH event recorded via the
+  action route; empty messages rejected; hearing is local (near hears,
+  far doesn't, nobody hears themselves); the speech buffer bounded;
+  the full conversation — human message in, model reply out, both
+  utterances on the timeline and in the log with the right kinds;
+  chat without joining 409; out of earshot 400; unknown agent 404; a
+  scripted agent records the speech with a null reply).
+- Live, with a real mind (qwen2.5:7b-instruct, world 72): the
+  participant asked "Who are you and what do you see around you?" and
+  the agent answered *from its actual observation*: "Greetings! I am a
+  small agent exploring this world. I see a wall to the north and a
+  body of water to the east." A second exchange logged both ways. The
+  reply repeats its surroundings rather than tracking the thread — a
+  small-model trait; conversation memory is S22's business.
+- Roadmap S21 checklist: human sends a message to an agent and
+  receives a model-generated response ✅ (live, through the real API).
+
+### Commits
+- (pending — not yet committed at time of writing)

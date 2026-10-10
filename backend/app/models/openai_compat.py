@@ -32,7 +32,7 @@ DEFAULT_TIMEOUT_S = 30.0
 DEFAULT_SYSTEM_PROMPT = (
     "You are an agent inside a small grid world. Decide your next action "
     "from the observation. Reply with JSON only, in this shape: "
-    '{"action": {"action": "move|look|inspect|pick_up|drop|place", '
+    '{"action": {"action": "move|look|inspect|pick_up|drop|place|gather|build|remove|say", '
     '"direction": "north|south|east|west"}, '
     '"goal_update": string|null, "thought_summary": string|null, '
     '"message": string|null, '
@@ -41,7 +41,9 @@ DEFAULT_SYSTEM_PROMPT = (
     "The world validates every action; an illegal action is rejected "
     "and never changes the world. The observation includes the "
     "knowledge you inherited at birth; the inheritance field is what "
-    "you intend to pass to your next child — decide it deliberately."
+    "you intend to pass to your next child - decide it deliberately. "
+    "If the observation's messages list contains someone speaking to "
+    "you, your reply belongs in the message field - say it aloud."
 )
 
 

@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 import type { AgentDetail } from "./api";
 import { LineageExplorer } from "./LineageExplorer";
-import { colors, font, headingStyle, panelStyle } from "./theme";
+import { buttonStyle, colors, font, headingStyle, panelStyle } from "./theme";
 
 type Props = {
   worldId: number;
@@ -20,6 +20,29 @@ type Props = {
 export function AgentInspector({ worldId, agentId, onClose, onSelectAgent }: Props) {
   const [detail, setDetail] = useState<AgentDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [exchanges, setExchanges] = useState<{ said: string; reply: string | null }[]>([]);
+
+  async function send() {
+    const message = draft.trim();
+    if (!message) return;
+    setSending(true);
+    setChatError(null);
+    try {
+      const result = await api.chat(worldId, detail?.id ?? agentId, message);
+      setExchanges((previous) => [
+        ...previous,
+        { said: message, reply: result.reply },
+      ]);
+      setDraft("");
+    } catch (e) {
+      setChatError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -91,6 +114,58 @@ export function AgentInspector({ worldId, agentId, onClose, onSelectAgent }: Pro
           <span style={{ color: colors.dim, fontSize: "0.7rem" }}>no actions yet</span>
         )}
       </Block>
+
+      {/* S21: talk to this agent — the reply comes back from its own
+          decision, and both utterances ride the world timeline. */}
+      <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: "0.4rem" }}>
+        <h2 style={headingStyle}>talk to agent {detail.id}</h2>
+        <div style={{ display: "flex", gap: "0.4rem" }}>
+          <input
+            style={{
+              flex: 1,
+              backgroundColor: colors.panelAlt,
+              color: colors.text,
+              border: `1px solid ${colors.border}`,
+              borderRadius: 3,
+              padding: "0.3rem 0.5rem",
+              fontFamily: font,
+              fontSize: "0.72rem",
+            }}
+            placeholder="say something..."
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !sending) void send();
+            }}
+          />
+          <button
+            style={{ ...buttonStyle, opacity: sending ? 0.5 : 1 }}
+            disabled={sending}
+            onClick={() => void send()}
+          >
+            send
+          </button>
+        </div>
+        {chatError && (
+          <p style={{ margin: "0.3rem 0 0", fontSize: "0.68rem", color: colors.error }}>
+            {chatError}
+          </p>
+        )}
+        {exchanges.map((exchange, index) => (
+          <div key={index} style={{ marginTop: "0.4rem", fontSize: "0.7rem" }}>
+            <div>
+              <span style={{ color: colors.dim }}>you: </span>
+              <span style={{ color: colors.text }}>{exchange.said}</span>
+            </div>
+            <div>
+              <span style={{ color: colors.dim }}>agent {detail.id}: </span>
+              <span style={{ color: exchange.reply ? colors.decision : colors.dim }}>
+                {exchange.reply ?? "(no reply — a scripted mind has nothing to say)"}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
 
       <Block title={`memory (${detail.memory.length})`}>
         <ol style={{ listStyle: "none", margin: 0, padding: 0, fontSize: "0.68rem", display: "flex", flexDirection: "column", gap: "0.15rem", maxHeight: 140, overflowY: "auto" }}>

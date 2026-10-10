@@ -69,6 +69,7 @@ HANDLERS = {
     "gather": "_gather",
     "build": "_build",
     "remove": "_remove",
+    "say": "_say",
 }
 
 
@@ -245,6 +246,21 @@ def _remove(world: World, actor_id, action: dict) -> dict:
         if amount > 0:
             world.credit_resource(actor_id, kind, amount)
     return {"block": obj.type, "object_id": obj.id, "refunded": dict(material)}
+
+
+def _say(world: World, actor_id, action: dict) -> dict:
+    """Speak aloud (S21). Anyone can — the participant or an agent.
+
+    The utterance is recorded as a SPEECH event and enters the local
+    speech buffer; hearing is proximity-based (World.messages_for).
+    """
+    _require_actor(world, actor_id)
+    message = action.get("message")
+    if not isinstance(message, str) or not message.strip():
+        raise _Rejected("empty_message", {})
+    message = message.strip()
+    world.say(actor_id, message)
+    return {"message": message}
 
 
 # ----------------------------------------------------------------------

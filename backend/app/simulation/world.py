@@ -40,6 +40,11 @@ BLOCK_RECIPES = {
     "stone_block": {"stone": 1},
     "door": {"wood": 1},
 }
+# How far a voice carries (S21): Manhattan cells, local speech.
+SPEECH_RADIUS = 6
+# The rolling speech buffer's bound; older utterances are still on the
+# timeline (events), just not in anyone's ear.
+SPEECH_BUFFER = 50
 
 
 @dataclass
@@ -190,6 +195,8 @@ class World:
         self._structures: dict[int, Structure] = {}
         self._next_structure_id = 1
         self._structure_of: dict[int, int] = {}  # object id -> structure id
+        # Rolling speech buffer (S21): (speaker, position, message, tick).
+        self._speeches: list[tuple[int, Position, str, int]] = []
         self._events: list[Event] = list(events or [])
         self._next_event_id = (
             next_event_id
@@ -435,6 +442,47 @@ class World:
     def resource_count(self, actor_id: int, kind: str) -> int:
         """How much of one resource an entity carries."""
         return self._resources.get(actor_id, {}).get(kind, 0)
+
+    # ------------------------------------------------------------------
+    # Speech (S21)
+    # ------------------------------------------------------------------
+
+    def say(self, actor_id: int, message: str) -> Event:
+        """An entity speaks aloud; the utterance lands on the timeline.
+
+        The speaker must be in the world. Hearing is local: only
+        entities within ``SPEECH_RADIUS`` see the message in their next
+        observation (``messages_for``), and the rolling buffer is the
+        ear's memory — the events table remains the full record.
+        """
+        position = self._entities.get(actor_id)
+        if position is None:
+            raise ValueError(f"unknown speaker {actor_id!r}")
+        event = self._add_event(
+            EventTypes.SPEECH,
+            actor_id=actor_id,
+            payload={"message": message, "position": position.to_dict()},
+        )
+        self._speeches.append((actor_id, position, message, self.tick))
+        if len(self._speeches) > SPEECH_BUFFER:
+            del self._speeches[: len(self._speeches) - SPEECH_BUFFER]
+        return event
+
+    def messages_for(self, actor_id: int) -> list[dict]:
+        """What `actor_id` can hear: recent speech within the radius."""
+        position = self._entities.get(actor_id)
+        if position is None:
+            return []
+        heard = []
+        for speaker, spoke_at, message, tick in self._speeches:
+            if speaker == actor_id:
+                continue  # you do not hear yourself
+            if abs(position.x - spoke_at.x) + abs(position.y - spoke_at.y) <= SPEECH_RADIUS:
+                heard.append(
+                    {"from": speaker, "message": message, "tick": tick,
+                     "distance": abs(position.x - spoke_at.x) + abs(position.y - spoke_at.y)}
+                )
+        return heard
 
     def resources(self, actor_id: int) -> dict:
         """An entity's whole ledger (a copy)."""

@@ -61,6 +61,23 @@ directions) and the camera follows; the simulation keeps ticking
 throughout. The same join/leave/move is on the API:
 `POST /api/worlds/{id}/participant/join|leave|move`.
 
+## Talking to agents (S21+)
+
+```bash
+# join, walk up to an agent, then talk (the reply is the agent's own
+# decision, generated from its observation — which carries what you said)
+curl -s -X POST localhost:8000/api/worlds/1/chat \
+     -H "Content-Type: application/json" \
+     -d '{"agent_id": 1, "message": "Who are you?"}'
+curl -s localhost:8000/api/worlds/1/conversations   # every utterance, oldest first
+```
+
+Speech is local: a voice carries 6 cells, lands on the timeline as a
+SPEECH event, and shows up in nearby agents' observations (`messages`).
+Out of earshot, the chat is refused (400). Scripted agents hear you but
+have nothing to say; model minds reply through the decision contract's
+`message` field.
+
 Environment: `FLOOD_API` (backend URL, default `http://127.0.0.1:8000`),
 `FLOOD_SEED` (world seed, default `matrix`), `FLOOD_SMOKE=1` (self-test).
 Controls: LMB agent = follow, LMB empty/Esc = release, hold RMB = look,

@@ -255,6 +255,10 @@ func _format_event(e: Dictionary) -> String:
 			detail += " -> %s" % payload.get("reason")
 	elif kind == "OBJECT_CREATED":
 		detail = str(payload.get("type", "?"))
+	elif kind == "SPEECH" and payload.has("message"):
+		detail = "\"" + str(payload.get("message", "")).substr(0, 60) + "\""
+	elif kind == "AGENT_MESSAGE" and payload.has("message"):
+		detail = "\"" + str(payload.get("message", "")).substr(0, 60) + "\""
 	var actor = e.get("actor_id")
 	var who := "world" if actor == null else "agent %d" % int(actor)
 	return "[%s] %s: %s" % [who, kind.to_lower(), detail]

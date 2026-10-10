@@ -29,7 +29,7 @@ from app.simulation.bus import EventBus
 from app.simulation.engine import Engine
 from app.simulation.model_policy import ModelPolicy
 from app.simulation.policies import ForagerPolicy, GathererPolicy, WanderPolicy
-from app.simulation.world import Position, World
+from app.simulation.world import SPEECH_RADIUS, Position, World
 
 BRAINS_SCRIPTED = "scripted"
 BRAINS_MODEL = "model"
@@ -163,6 +163,74 @@ class WorldHost:
             return {"entity_id": PARTICIPANT_ENTITY_ID, "left": False}
         self.engine.world.remove_entity(PARTICIPANT_ENTITY_ID)
         return {"entity_id": PARTICIPANT_ENTITY_ID, "left": True}
+
+    # ------------------------------------------------------------------
+    # Conversation (S21)
+    # ------------------------------------------------------------------
+
+    async def converse(self, *, agent_id: int, message: str) -> dict:
+        """Say something to one agent and get its answer.
+
+        The participant speaks through the same validated `say` action
+        as anyone else, the target must be within earshot (local
+        speech), and the agent answers on the spot — its next decision
+        sees the message, so a model mind replies in kind. A scripted
+        agent has nothing to say; the speech is still recorded and the
+        reply is simply absent.
+        """
+        participant = self.participant
+        if participant is None:
+            raise HTTPException(status_code=409, detail="no participant in this world; join first")
+        target = next(
+            (a for a in self.engine.agents if a.agent_id == agent_id), None
+        )
+        if target is None:
+            raise HTTPException(status_code=404, detail=f"agent {agent_id} not in world")
+
+        said = self.engine.world.execute_action(
+            PARTICIPANT_ENTITY_ID, {"action": "say", "message": message}
+        )
+        if not said.ok:
+            raise HTTPException(status_code=400, detail=f"could not speak: {said.reason}")
+
+        listener = self.engine.world.entity_position(agent_id)
+        speaker = self.engine.world.entity_position(PARTICIPANT_ENTITY_ID)
+        if listener is None:  # pragma: no cover - target existence just checked
+            raise HTTPException(status_code=409, detail="the agent left the world")
+        distance = abs(listener.x - speaker.x) + abs(listener.y - speaker.y)
+        if distance > SPEECH_RADIUS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"agent {agent_id} is out of earshot ({distance} cells away, "
+                f"radius {SPEECH_RADIUS})",
+            )
+
+        reply = await self._agent_reply(target)
+        return {
+            "agent_id": agent_id,
+            "heard": True,
+            "speech_event_id": said.event.id,
+            "reply": reply.get("message") if reply else None,
+            "reply_event_id": reply.get("event_id") if reply else None,
+            "distance": distance,
+        }
+
+    async def _agent_reply(self, agent) -> dict | None:
+        """Let one agent decide now; return its utterance if it made one."""
+        refresh = getattr(agent.policy, "refresh", None)
+        decision = None
+        if refresh is not None:
+            decision = await refresh(agent.observe())
+        else:
+            decision = agent.policy.decide(agent.observe())
+        if not isinstance(decision, dict):
+            return None
+        message = decision.get("message")
+        if not isinstance(message, str) or not message.strip():
+            return None
+        # The utterance rides the timeline like any other speech.
+        event = self.engine.world.say(agent.agent_id, message.strip())
+        return {"message": message.strip(), "event_id": event.id}
 
 
 class WorldRegistry:

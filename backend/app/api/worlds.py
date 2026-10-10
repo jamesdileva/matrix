@@ -313,14 +313,12 @@ def inject_action(world_id: int, payload: ActionRequest, request: Request) -> di
     ActionResult, so a caller sees exactly what the world made of it.
     """
     host = _host(request, world_id)
-    agent = next(
-        (a for a in host.engine.agents if a.agent_id == payload.agent_id), None
-    )
-    if agent is None:
+    if host.engine.world.entity_position(payload.agent_id) is None:
         raise HTTPException(
-            status_code=404, detail=f"agent {payload.agent_id} not in world {world_id}"
+            status_code=404,
+            detail=f"entity {payload.agent_id} not in world {world_id}",
         )
-    result = host.engine.world.execute_action(agent.agent_id, payload.action)
+    result = host.engine.world.execute_action(payload.agent_id, payload.action)
     return {
         "ok": result.ok,
         "reason": result.reason,
@@ -332,6 +330,11 @@ def inject_action(world_id: int, payload: ActionRequest, request: Request) -> di
 
 class ParticipantMoveRequest(BaseModel):
     direction: str
+
+
+class ChatRequest(BaseModel):
+    agent_id: int
+    message: str
 
 
 @router.get("/worlds/{world_id}/participant")
@@ -355,6 +358,39 @@ def leave_participant(world_id: int, request: Request) -> dict:
     host = _host(request, world_id)
     result = host.participant_leave()
     return {"world_id": world_id, **result}
+
+
+@router.post("/worlds/{world_id}/chat")
+async def chat_with_agent(world_id: int, payload: ChatRequest, request: Request) -> dict:
+    """S21: say something to one agent and receive its answer.
+
+    The participant must be in the world and within earshot of the
+    target (local speech). The reply is the agent's own — a model mind
+    answers from its observation, which now carries what was said.
+    """
+    host = _host(request, world_id)
+    return await host.converse(agent_id=payload.agent_id, message=payload.message)
+
+
+@router.get("/worlds/{world_id}/conversations")
+def list_conversations(world_id: int, request: Request, limit: int = 100) -> dict:
+    """S21: the conversation log — every utterance on this world's
+    timeline, oldest first (SPEECH from anyone, agents' replies
+    included)."""
+    host = _host(request, world_id)
+    limit = max(1, min(limit, 1000))
+    utterances = [
+        {
+            "id": event.id,
+            "tick": event.tick,
+            "from": event.actor_id,
+            "kind": "agent" if event.actor_id != PARTICIPANT_ENTITY_ID else "participant",
+            "message": event.payload.get("message"),
+        }
+        for event in host.engine.world.events
+        if event.type in (EventTypes.SPEECH, EventTypes.AGENT_MESSAGE)
+    ]
+    return {"world_id": world_id, "conversations": utterances[-limit:]}
 
 
 @router.post("/worlds/{world_id}/participant/move")

@@ -176,6 +176,13 @@ export const api = {
       reason: string | null;
       position: { x: number; y: number } | null;
     }>,
+  chat: (id: number, agentId: number, message: string) =>
+    post(`/api/worlds/${id}/chat`, { agent_id: agentId, message }) as unknown as Promise<{
+      heard: boolean;
+      reply: string | null;
+      distance: number;
+      speech_event_id: number;
+    }>,
   events: (id: number, sinceId: number, limit = 100) =>
     request<{ world_id: number; events: WorldEvent[] }>(
       `/api/worlds/${id}/events?since_id=${sinceId}&limit=${limit}`,
