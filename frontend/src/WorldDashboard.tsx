@@ -10,6 +10,7 @@ import { api } from "./api";
 import type { AgentSummary, WorldEvent, WorldState } from "./api";
 import { Controls } from "./Controls";
 import { EventStream } from "./EventStream";
+import { ParticipantPanel } from "./ParticipantPanel";
 import { PopulationStats } from "./PopulationStats";
 import { WorldViewport } from "./WorldViewport";
 import { buttonStyle, colors, headingStyle, panelStyle } from "./theme";
@@ -124,6 +125,7 @@ export function WorldDashboard({ worldId, onWorldsChanged }: Props) {
         </section>
         <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", minWidth: 0 }}>
           <PopulationStats agents={agents} />
+          <ParticipantPanel worldId={worldId} />
           <Controls
             worldId={worldId}
             paused={Boolean(state?.paused)}

@@ -9,6 +9,10 @@ extends Node3D
 const CELL := 1.0
 const AGENT_HEIGHT := 0.45
 
+## The participant's entity id in the Simulation API (S20). The client
+## draws it amber and labels it "you".
+const PARTICIPANT_ID := 1001
+
 var terrain_root: Node3D
 var objects_root: Node3D
 var agents_root: Node3D
@@ -174,14 +178,19 @@ func _make_agent(id: int) -> Node3D:
 	capsule.radius = 0.22
 	capsule.height = 0.8
 	body.mesh = capsule
-	body.material_override = _material(Color(0.05, 0.25, 0.12), Color(0.2, 1.0, 0.5), 1.1)
+	var is_participant := id == PARTICIPANT_ID
+	body.material_override = (
+		_material(Color(0.25, 0.18, 0.02), Color(1.0, 0.75, 0.2), 1.3)
+		if is_participant
+		else _material(Color(0.05, 0.25, 0.12), Color(0.2, 1.0, 0.5), 1.1)
+	)
 	root.add_child(body)
 	var label := Label3D.new()
-	label.text = "Agent %d" % id
+	label.text = "you" if is_participant else "Agent %d" % id
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	label.font_size = 40
 	label.pixel_size = 0.004
-	label.modulate = Color(0.55, 1.0, 0.7)
+	label.modulate = Color(1.0, 0.85, 0.45) if is_participant else Color(0.55, 1.0, 0.7)
 	label.outline_size = 8
 	label.position = Vector3(0, 0.85, 0)
 	root.add_child(label)

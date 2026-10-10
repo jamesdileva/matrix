@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import asyncio
 
+from fastapi import HTTPException
+
 from app.config.settings import settings
 from app.models.config import provider_from_settings
 from app.models.provider import ModelProvider
@@ -32,6 +34,11 @@ from app.simulation.world import Position, World
 BRAINS_SCRIPTED = "scripted"
 BRAINS_MODEL = "model"
 _BRAINS = (BRAINS_SCRIPTED, BRAINS_MODEL)
+
+# The participant's entity id, well above engine agent ids (S20). The
+# participant is an entity like any other — it moves through the same
+# validated dispatcher and appears in agents' observations.
+PARTICIPANT_ENTITY_ID = 1001
 
 
 def _gatherer_spot(world):
@@ -111,6 +118,51 @@ class WorldHost:
             except asyncio.CancelledError:
                 pass
         self._task = None
+
+    # ------------------------------------------------------------------
+    # The participant (S20)
+    # ------------------------------------------------------------------
+
+    @property
+    def participant(self) -> dict | None:
+        """The world's participant, or None."""
+        position = self.engine.world.entity_position(PARTICIPANT_ENTITY_ID)
+        if position is None:
+            return None
+        return {"entity_id": PARTICIPANT_ENTITY_ID, "position": position.to_dict()}
+
+    def participant_join(self) -> dict:
+        """Enter the world as an entity on the first free floor cell.
+
+        Idempotent: joining while present returns the current
+        participant. The simulation keeps ticking throughout.
+        """
+        existing = self.participant
+        if existing is not None:
+            return {**existing, "joined": False}
+
+        for y in range(1, self.engine.world.height - 1):
+            for x in range(1, self.engine.world.width - 1):
+                position = Position(x, y)
+                if (
+                    self.engine.world.is_floor(position)
+                    and self.engine.world.object_at(position) is None
+                    and self.engine.world.entity_at(position) is None
+                ):
+                    self.engine.world.add_entity(PARTICIPANT_ENTITY_ID, position)
+                    return {
+                        "entity_id": PARTICIPANT_ENTITY_ID,
+                        "position": position.to_dict(),
+                        "joined": True,
+                    }
+        raise HTTPException(status_code=409, detail="no free cell for a participant")
+
+    def participant_leave(self) -> dict:
+        """Leave the world; the entity (and its events) go with it."""
+        if self.participant is None:
+            return {"entity_id": PARTICIPANT_ENTITY_ID, "left": False}
+        self.engine.world.remove_entity(PARTICIPANT_ENTITY_ID)
+        return {"entity_id": PARTICIPANT_ENTITY_ID, "left": True}
 
 
 class WorldRegistry:

@@ -8,6 +8,10 @@ extends Camera3D
 var move_speed := 10.0
 var follow_target: Node3D = null
 
+## When frozen, the camera still looks but takes no movement input —
+## participant mode (S20) drives the avatar instead.
+var frozen := false
+
 var _follow_offset := Vector3(0, 6, 9)
 var _yaw := 0.0
 var _pitch := -0.45
@@ -51,7 +55,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
-	var input := _movement_vector()
+	var input := _movement_vector() if not frozen else Vector3.ZERO
 	if is_following():
 		_apply_follow(delta, input)
 	else:

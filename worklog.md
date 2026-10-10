@@ -72,7 +72,7 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S20 — Human Avatar
+- **Next sprint:** S20 — Human Avatar (in progress)
 - Completed sprints: S01–S19, S06B (S19 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
@@ -1677,3 +1677,66 @@ not handles).
 
 ### Commits
 - `eb4818c` — S19: house experiment — "Build a house." scenario engine, scripted calibration, structure merging, model mode [pushed]
+
+## S20 � Human Avatar (in progress)
+
+### Plan (2026-10-08)
+The Void becomes enterable (roadmap S20). A participant is a first-
+class entity in a live world � it joins, moves under the same
+validated rules as agents, and is visible to them in their
+observations � while the simulation keeps ticking without
+interruption. The 3D client (Godot, per D001) gets a participant mode:
+the operator joins, walks the avatar with WASD, and the camera
+follows; the web console gets the mode switch and a movement pad.
+Conversation with agents is S21.
+
+### Scope (2026-10-08)
+In: the participant entity (join/leave/move routes on the Simulation
+API, movement through the same validated action dispatcher as
+agents, presence in snapshots and agent observations); the Godot
+client's participant mode (P to join/leave, WASD to walk, follow
+camera); the console's Observer/Participant mode switch with a
+movement pad; a headless participant smoke through the client; tests.
+Out: talking to agents (S21), avatar appearance beyond the entity
+marker, possession of agent bodies, permissions/ownership between
+participants.
+
+### Implementation
+- Backend: `WorldHost` owns the participant — `PARTICIPANT_ENTITY_ID`
+  (1001, above engine agent ids), join (idempotent, placed on the
+  first free floor cell), leave, and a movement route that submits a
+  normal `move` action through the world's dispatcher — walls, water
+  and occupants all still apply. `GET /participant` reports presence
+  and position. The participant is an ordinary entity: it appears in
+  snapshots and in agents' observations (`entity` in cells, `kind:
+  entity` in nearby), so the Void's inhabitants notice the human.
+- Godot client: **P** joins/leaves; in participant mode WASD is mapped
+  through the camera yaw onto the grid's cardinal directions (the
+  client's +z is the world's south) and submitted at a rate-limited
+  cadence; the camera freezes its own flight input and follows the
+  participant node. The participant renders amber with a "you" label
+  (`world_view.gd`). A `FLOOD_PARTICIPANT=1` headless mode drives the
+  full join → move → leave cycle and asserts the avatar moved.
+- Console: a participant panel (join/leave, N/E/S/W pad, live
+  position) — the Observer/Participant mode switch the roadmap asks
+  for.
+
+### Verification
+- Tests: pytest **301 passed** (9 new: join places the entity and it
+  appears in the state snapshot; not-joined reports none; join is
+  idempotent; leave removes the entity; move follows the world's
+  rules and rejects bad directions; move without joining is a 409;
+  the participant does not stop the simulation (the tick advances
+  with the avatar present); agents see the participant in their
+  observations; 404s for unknown worlds).
+- Client: headless load clean; **PARTICIPANT_SMOKE OK world=68
+  moved_to=(4,1)** — join, walk, verify, leave, through the real API;
+  the observer smoke and the client unit test still pass (no
+  regressions in the free-cam/follow/pick paths).
+- Roadmap S20 checklist: the observer can enter Participant Mode and
+  move around without stopping the simulation ✅ — the smoke proves
+  the join/move/leave cycle on a live backend while the world keeps
+  ticking, and the participant is visible to the agents.
+
+### Commits
+- (pending — not yet committed at time of writing)

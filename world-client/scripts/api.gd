@@ -41,6 +41,24 @@ func get_events(world_id: int, since_id: int) -> void:
 	)
 
 
+## Participant mode (S20): the operator as an entity in the world.
+func join_participant(world_id: int) -> void:
+	_request(HTTPClient.METHOD_POST, "/api/worlds/%d/participant/join" % world_id, "participant_join")
+
+
+func leave_participant(world_id: int) -> void:
+	_request(HTTPClient.METHOD_POST, "/api/worlds/%d/participant/leave" % world_id, "participant_leave")
+
+
+func move_participant(world_id: int, direction: String) -> void:
+	_request(
+		HTTPClient.METHOD_POST,
+		"/api/worlds/%d/participant/move" % world_id,
+		"participant_move",
+		JSON.stringify({"direction": direction}),
+	)
+
+
 func _request(method: int, path: String, kind: String, body := "") -> void:
 	var http := HTTPRequest.new()
 	http.timeout = 5.0

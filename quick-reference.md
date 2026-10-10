@@ -44,9 +44,22 @@ tools/godot.cmd --headless --path world-client --quit   # headless load check
 # client headless tests (no backend needed)
 tools/godot.cmd --headless --path world-client --script res://tests/smoke.gd
 
+# participant mode (S20): headless self-test — join, move, leave
+FLOOD_PARTICIPANT=1 tools/godot.cmd --headless --path world-client
+
 # full E2E smoke (needs backend running)
 FLOOD_SMOKE=1 tools/godot.cmd --headless --path world-client
 ```
+
+**Participant mode (S20):** press **P** to join a world as an entity
+(or leave again) — the avatar is a real world entity (id 1001), moves
+through the same validated actions as agents (walls, water and
+occupants still apply), appears in agents' observations, and is
+rendered amber and labelled "you". In participant mode WASD walks the
+avatar (mapped through the camera's yaw onto the grid's cardinal
+directions) and the camera follows; the simulation keeps ticking
+throughout. The same join/leave/move is on the API:
+`POST /api/worlds/{id}/participant/join|leave|move`.
 
 Environment: `FLOOD_API` (backend URL, default `http://127.0.0.1:8000`),
 `FLOOD_SEED` (world seed, default `matrix`), `FLOOD_SMOKE=1` (self-test).

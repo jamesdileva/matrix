@@ -12,7 +12,12 @@ from pydantic import BaseModel, Field
 from app.config.settings import settings
 from app.experiments.lineage import generation_metrics as _generation_metrics
 from app.experiments.lineage import tokens as _tokens
-from app.host import BRAINS_MODEL, BRAINS_SCRIPTED, WorldHost
+from app.host import (
+    BRAINS_MODEL,
+    BRAINS_SCRIPTED,
+    PARTICIPANT_ENTITY_ID,
+    WorldHost,
+)
 from app.simulation.errors import BirthError
 from app.simulation.events import EventTypes
 from app.simulation.model_policy import ModelPolicy
@@ -322,6 +327,55 @@ def inject_action(world_id: int, payload: ActionRequest, request: Request) -> di
         "action": result.action,
         "data": result.data,
         "event_id": result.event.id,
+    }
+
+
+class ParticipantMoveRequest(BaseModel):
+    direction: str
+
+
+@router.get("/worlds/{world_id}/participant")
+def get_participant(world_id: int, request: Request) -> dict:
+    """S20: is the operator in this world, and where?"""
+    host = _host(request, world_id)
+    return {"world_id": world_id, "participant": host.participant}
+
+
+@router.post("/worlds/{world_id}/participant/join")
+def join_participant(world_id: int, request: Request) -> dict:
+    """S20: enter the world as an entity. The simulation keeps running."""
+    host = _host(request, world_id)
+    result = host.participant_join()
+    return {"world_id": world_id, **result}
+
+
+@router.post("/worlds/{world_id}/participant/leave")
+def leave_participant(world_id: int, request: Request) -> dict:
+    """S20: leave the world."""
+    host = _host(request, world_id)
+    result = host.participant_leave()
+    return {"world_id": world_id, **result}
+
+
+@router.post("/worlds/{world_id}/participant/move")
+def move_participant(world_id: int, payload: ParticipantMoveRequest, request: Request) -> dict:
+    """S20: walk the avatar. The move travels the same validated path as
+    an agent's — walls, water and occupants all still apply."""
+    host = _host(request, world_id)
+    if host.participant is None:
+        raise HTTPException(status_code=409, detail="no participant in this world; join first")
+    result = host.engine.world.execute_action(
+        PARTICIPANT_ENTITY_ID, {"action": "move", "direction": payload.direction}
+    )
+    return {
+        "world_id": world_id,
+        "ok": result.ok,
+        "reason": result.reason,
+        "position": (
+            host.engine.world.entity_position(PARTICIPANT_ENTITY_ID).to_dict()
+            if host.participant
+            else None
+        ),
     }
 
 

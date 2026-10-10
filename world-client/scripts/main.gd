@@ -16,6 +16,8 @@ const FreeCameraScript := preload("res://scripts/free_cam.gd")
 const POLL_INTERVAL := 0.2
 const EVENT_POLL_INTERVAL := 0.5
 const SMOKE_TIMEOUT := 25.0
+const PARTICIPANT_ID := 1001  # the Simulation API's participant entity id (S20)
+const MOVE_INTERVAL := 0.18   # seconds between participant steps
 
 var api
 var world_view
@@ -41,15 +43,28 @@ var _smoke_deadline := 0
 var _last_tick := -1
 var _last_agent_count := 0
 
+# Participant mode (S20).
+var _participant_mode := false
+var _participant_joined := false
+var _participant_position := Vector2i.ZERO
+var _participant_start := Vector2i.ZERO
+var _move_timer := 0.0
+var _participant_smoke := false
+var _participant_smoke_stage := 0
+var _participant_smoke_deadline := 0
+
 
 func _ready() -> void:
 	_smoke = OS.get_environment("FLOOD_SMOKE") != ""
+	_participant_smoke = OS.get_environment("FLOOD_PARTICIPANT") != ""
 	_build_scene()
 	api = ApiScript.new(self)
 	api.request_finished.connect(_on_api_response)
 	_try_connect()
 	if _smoke:
 		_smoke_deadline = Time.get_ticks_msec() + int(SMOKE_TIMEOUT * 1000)
+	if _participant_smoke:
+		_participant_smoke_deadline = Time.get_ticks_msec() + int(SMOKE_TIMEOUT * 1000)
 
 
 func _build_scene() -> void:
@@ -101,7 +116,7 @@ func _build_ui() -> void:
 	layer.add_child(event_log)
 
 	var help := Label.new()
-	help.text = "LMB agent: follow · LMB empty / Esc: release · hold RMB: look · WASD/QE: move · wheel: speed"
+	help.text = "LMB agent: follow · LMB empty / Esc: release · hold RMB: look · WASD/QE: move · wheel: speed · P: participant mode (join/leave, WASD walks)"
 	help.add_theme_color_override("font_color", Color(0.4, 0.8, 0.5, 0.85))
 	help.add_theme_font_size_override("font_size", 12)
 	help.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
@@ -157,6 +172,32 @@ func _on_api_response(kind: String, data: Dictionary, error: String) -> void:
 			_events_busy = false
 			if world_id != -1 and error == "":
 				_apply_events(data)
+		"participant_join":
+			if error != "":
+				_set_status("participant join failed: %s" % error)
+				_participant_mode = false
+				_participant_smoke_finish(false)
+				return
+			_participant_mode = true
+			_participant_joined = true
+			var pos: Dictionary = data.get("position", {})
+			_participant_position = Vector2i(int(pos.get("x", 0)), int(pos.get("y", 0)))
+			_participant_start = _participant_position
+			cam.frozen = true
+			_set_status("participant · world %d · (%d, %d) — P to leave" % [
+				world_id, _participant_position.x, _participant_position.y,
+			])
+		"participant_leave":
+			_participant_mode = false
+			_participant_joined = false
+			cam.frozen = false
+			cam.release()
+			_set_status("left the world · observer mode")
+		"participant_move":
+			if error == "":
+				var moved: Dictionary = data.get("position", {})
+				if not moved.is_empty():
+					_participant_position = Vector2i(int(moved.get("x", 0)), int(moved.get("y", 0)))
 
 
 func _apply_state(data: Dictionary) -> void:
@@ -171,12 +212,21 @@ func _apply_state(data: Dictionary) -> void:
 	_last_tick = int(data.get("tick", 0))
 	var entities: Dictionary = data.get("entities", {})
 	_last_agent_count = entities.size()
-	tick_label.text = "tick %d · %d agents%s" % [
+	var participant_here := entities.has(str(PARTICIPANT_ID))
+	tick_label.text = "tick %d · %d agents%s%s" % [
 		_last_tick, _last_agent_count,
 		" · PAUSED" if bool(data.get("paused", false)) else "",
+		" · PARTICIPANT (%d, %d)" % [_participant_position.x, _participant_position.y]
+			if _participant_mode else "",
 	]
+	if _participant_mode and participant_here:
+		var node: Node3D = world_view.agent_node(PARTICIPANT_ID)
+		if node != null and not cam.is_following():
+			cam.follow(node)
 	if _smoke and not _smoke_done and _last_agent_count > 0:
 		_smoke_finish(true)
+	if _participant_smoke:
+		_participant_smoke_step(participant_here)
 
 
 func _apply_events(data: Dictionary) -> void:
@@ -214,6 +264,9 @@ func _process(delta: float) -> void:
 	if _smoke and not _smoke_done and Time.get_ticks_msec() > _smoke_deadline:
 		_smoke_finish(false)
 		return
+	if _participant_smoke and not _participant_smoke_stage >= 99 and Time.get_ticks_msec() > _participant_smoke_deadline:
+		_participant_smoke_finish(false)
+		return
 	if world_id == -1:
 		_retry_timer += delta
 		if _retry_timer >= 2.0 and not _connecting:
@@ -230,10 +283,42 @@ func _process(delta: float) -> void:
 		_event_timer = 0.0
 		_events_busy = true
 		api.get_events(world_id, last_event_id)
+	if _participant_mode:
+		_move_timer += delta
+		if _move_timer >= MOVE_INTERVAL:
+			_move_timer = 0.0
+			var direction := _wasd_direction()
+			if direction != "":
+				api.move_participant(world_id, direction)
+
+
+## WASD mapped through the camera's yaw onto the grid's cardinal
+## directions (the client's +z is the world's south).
+func _wasd_direction() -> String:
+	var basis := cam.global_transform.basis
+	var forward := Vector2(-basis.z.x, -basis.z.y * 0.0 - basis.z.z)
+	var right := Vector2(basis.x.x, basis.x.z)
+	var v := Vector2.ZERO
+	if Input.is_physical_key_pressed(KEY_W):
+		v += forward
+	if Input.is_physical_key_pressed(KEY_S):
+		v -= forward
+	if Input.is_physical_key_pressed(KEY_D):
+		v += right
+	if Input.is_physical_key_pressed(KEY_A):
+		v -= right
+	if v.length() < 0.2:
+		return ""
+	v = v.normalized()
+	if absf(v.x) > absf(v.y):
+		return "east" if v.x > 0.0 else "west"
+	return "south" if v.y > 0.0 else "north"
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		if _participant_mode:
+			return
 		if cam.is_following():
 			cam.release()
 			_set_status("released")
@@ -244,6 +329,47 @@ func _unhandled_input(event: InputEvent) -> void:
 				if node != null:
 					cam.follow(node)
 					_set_status("following agent %d — LMB/Esc to release" % id)
+	elif event is InputEventKey and event.pressed and event.keycode == KEY_P and world_id != -1:
+		if _participant_mode:
+			api.leave_participant(world_id)
+		else:
+			_participant_mode = true
+			_set_status("joining as participant ...")
+			api.join_participant(world_id)
+
+
+## Headless participant self-test (S20): join, walk, verify the avatar
+## actually moved, leave, report.
+func _participant_smoke_step(participant_here: bool) -> void:
+	match _participant_smoke_stage:
+		0:
+			api.join_participant(world_id)
+			_participant_smoke_stage = 1
+		1:
+			if participant_here:
+				api.move_participant(world_id, "east")
+				_participant_smoke_stage = 2
+		2:
+			if _participant_position.x > _participant_start.x:
+				api.leave_participant(world_id)
+				_participant_smoke_stage = 3
+		3:
+			if not participant_here:
+				_participant_smoke_finish(true)
+
+
+func _participant_smoke_finish(ok: bool) -> void:
+	if _participant_smoke_stage >= 99:
+		return
+	_participant_smoke_stage = 99
+	if ok:
+		print("PARTICIPANT_SMOKE OK world=%d moved_to=(%d, %d)" % [
+			world_id, _participant_position.x, _participant_position.y,
+		])
+		get_tree().quit(0)
+	else:
+		print("PARTICIPANT_SMOKE FAIL: could not join/move/leave as a participant")
+		get_tree().quit(1)
 
 
 func _smoke_finish(ok: bool) -> void:

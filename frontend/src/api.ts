@@ -125,6 +125,11 @@ export type Lineage = {
   chain: LineageMember[];
 };
 
+export type Participant = {
+  world_id: number;
+  participant: { entity_id: number; position: { x: number; y: number } } | null;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
   if (!response.ok) {
@@ -160,6 +165,17 @@ export const api = {
     request<AgentDetail>(`/api/worlds/${id}/agents/${agentId}`),
   agentLineage: (id: number, agentId: number) =>
     request<Lineage>(`/api/worlds/${id}/agents/${agentId}/lineage`),
+  participant: (id: number) => request<Participant>(`/api/worlds/${id}/participant`),
+  participantJoin: (id: number) =>
+    post(`/api/worlds/${id}/participant/join`) as unknown as Promise<Participant & { joined: boolean }>,
+  participantLeave: (id: number) =>
+    post(`/api/worlds/${id}/participant/leave`) as unknown as Promise<Participant & { left: boolean }>,
+  participantMove: (id: number, direction: string) =>
+    post(`/api/worlds/${id}/participant/move`, { direction }) as unknown as Promise<{
+      ok: boolean;
+      reason: string | null;
+      position: { x: number; y: number } | null;
+    }>,
   events: (id: number, sinceId: number, limit = 100) =>
     request<{ world_id: number; events: WorldEvent[] }>(
       `/api/worlds/${id}/events?since_id=${sinceId}&limit=${limit}`,
