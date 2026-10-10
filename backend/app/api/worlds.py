@@ -337,6 +337,62 @@ class ChatRequest(BaseModel):
     message: str
 
 
+class SocialLeg(BaseModel):
+    object_id: int | None = None
+    resource: str | None = None
+    amount: int = 1
+
+
+class SocialRequest(BaseModel):
+    agent_id: int
+    leg: SocialLeg
+
+
+class TradeRequest(BaseModel):
+    agent_id: int
+    give: SocialLeg
+    want: SocialLeg
+
+
+class GroupRequest(BaseModel):
+    radius: int = 6
+    following: bool = True
+
+
+@router.post("/worlds/{world_id}/give")
+def participant_give(world_id: int, payload: SocialRequest, request: Request) -> dict:
+    """S22: hand something you carry to an adjacent agent."""
+    host = _host(request, world_id)
+    leg = payload.leg.model_dump(exclude_none=True)
+    return host.social_give(agent_id=payload.agent_id, leg=leg)
+
+
+@router.post("/worlds/{world_id}/take")
+def participant_take(world_id: int, payload: SocialRequest, request: Request) -> dict:
+    """S22: take something an adjacent agent carries."""
+    host = _host(request, world_id)
+    leg = payload.leg.model_dump(exclude_none=True)
+    return host.social_take(agent_id=payload.agent_id, leg=leg)
+
+
+@router.post("/worlds/{world_id}/trade")
+def participant_trade(world_id: int, payload: TradeRequest, request: Request) -> dict:
+    """S22: swap with an adjacent agent, atomically."""
+    host = _host(request, world_id)
+    return host.social_trade(
+        agent_id=payload.agent_id,
+        give=payload.give.model_dump(exclude_none=True),
+        want=payload.want.model_dump(exclude_none=True),
+    )
+
+
+@router.post("/worlds/{world_id}/group")
+def participant_group(world_id: int, payload: GroupRequest, request: Request) -> dict:
+    """S22: nearby agents start — or stop — following the participant."""
+    host = _host(request, world_id)
+    return host.social_group(radius=payload.radius, following=payload.following)
+
+
 @router.get("/worlds/{world_id}/participant")
 def get_participant(world_id: int, request: Request) -> dict:
     """S20: is the operator in this world, and where?"""

@@ -27,6 +27,7 @@ from app.persistence.repositories import AgentRecorder, DatabaseEventRecorder
 from app.simulation.agent import Agent
 from app.simulation.bus import EventBus
 from app.simulation.engine import Engine
+from app.simulation.events import EventTypes
 from app.simulation.model_policy import ModelPolicy
 from app.simulation.policies import ForagerPolicy, GathererPolicy, WanderPolicy
 from app.simulation.world import SPEECH_RADIUS, Position, World
@@ -231,6 +232,72 @@ class WorldHost:
         # The utterance rides the timeline like any other speech.
         event = self.engine.world.say(agent.agent_id, message.strip())
         return {"message": message.strip(), "event_id": event.id}
+
+    # ------------------------------------------------------------------
+    # Social interaction, participant-facing (S22)
+    # ------------------------------------------------------------------
+
+    def _participant_social(self, action: dict):
+        """Run one social action as the participant; returns the result."""
+        if self.participant is None:
+            raise HTTPException(status_code=409, detail="no participant in this world; join first")
+        result = self.engine.world.execute_action(PARTICIPANT_ENTITY_ID, action)
+        if not result.ok:
+            raise HTTPException(status_code=400, detail=result.reason or "rejected")
+        return result
+
+    def social_give(self, *, agent_id: int, leg: dict) -> dict:
+        result = self._participant_social({"action": "give", "target": agent_id, **leg})
+        return {"world_id": self.world_id, "ok": True, "data": result.data}
+
+    def social_take(self, *, agent_id: int, leg: dict) -> dict:
+        result = self._participant_social({"action": "take", "target": agent_id, **leg})
+        return {"world_id": self.world_id, "ok": True, "data": result.data}
+
+    def social_trade(self, *, agent_id: int, give: dict, want: dict) -> dict:
+        result = self._participant_social(
+            {"action": "trade", "target": agent_id, "give": give, "want": want}
+        )
+        return {"world_id": self.world_id, "ok": True, "data": result.data}
+
+    def social_group(self, *, radius: int, following: bool) -> dict:
+        """Sweep nearby agents into (or out of) following the participant.
+
+        The operator's sweep, distinct from the `follow` action: agents
+        need not start adjacent — the engine walks them over. Unfollowing
+        an agent that is not following is simply not counted.
+        """
+        if self.participant is None:
+            raise HTTPException(status_code=409, detail="no participant in this world; join first")
+        here = self.engine.world.entity_position(PARTICIPANT_ENTITY_ID)
+        changed = []
+        for agent in self.engine.agents:
+            position = agent.position
+            if position is None:
+                continue
+            if abs(position.x - here.x) + abs(position.y - here.y) > radius:
+                continue
+            if following:
+                self.engine.world.set_follow(agent.agent_id, PARTICIPANT_ENTITY_ID)
+                self.engine.world._add_event(
+                    EventTypes.FOLLOW,
+                    actor_id=agent.agent_id,
+                    target_id=PARTICIPANT_ENTITY_ID,
+                    payload={"kind": "started", "via": "group"},
+                )
+                changed.append(agent.agent_id)
+            elif self.engine.world.clear_follow(agent.agent_id):
+                self.engine.world._add_event(
+                    EventTypes.FOLLOW,
+                    actor_id=agent.agent_id,
+                    payload={"kind": "stopped", "via": "group"},
+                )
+                changed.append(agent.agent_id)
+        return {
+            "world_id": self.world_id,
+            "following": following,
+            "agents": changed,
+        }
 
 
 class WorldRegistry:

@@ -78,6 +78,28 @@ Out of earshot, the chat is refused (400). Scripted agents hear you but
 have nothing to say; model minds reply through the decision contract's
 `message` field.
 
+## Social interaction (S22+)
+
+```bash
+# give/take between the participant and an adjacent agent (objects or
+# resource amounts), and an atomic trade (both legs validate first)
+curl -s -X POST localhost:8000/api/worlds/1/give \
+     -H "Content-Type: application/json" -d '{"agent_id": 1, "leg": {"resource": "wood", "amount": 1}}'
+curl -s -X POST localhost:8000/api/worlds/1/take \
+     -H "Content-Type: application/json" -d '{"agent_id": 1, "leg": {"object_id": 5}}'
+curl -s -X POST localhost:8000/api/worlds/1/trade \
+     -H "Content-Type: application/json" \
+     -d '{"agent_id": 1, "give": {"object_id": 5}, "want": {"resource": "stone", "amount": 2}}'
+
+# gather a retinue: every agent within the radius starts (or stops)
+# following the participant — the engine walks them over each tick
+curl -s -X POST localhost:8000/api/worlds/1/group \
+     -H "Content-Type: application/json" -d '{"radius": 200, "following": true}'
+```
+
+The same give/take/trade/follow actions are available to agents
+through the decision contract.
+
 Environment: `FLOOD_API` (backend URL, default `http://127.0.0.1:8000`),
 `FLOOD_SEED` (world seed, default `matrix`), `FLOOD_SMOKE=1` (self-test).
 Controls: LMB agent = follow, LMB empty/Esc = release, hold RMB = look,

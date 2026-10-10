@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S22 — Social Interaction
-- Completed sprints: S01–S21, S06B (S21 done 2026-10-08)
+- **Next sprint:** S23 — Prison Sandbox
+- Completed sprints: S01–S22, S06B (S22 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -1807,3 +1807,72 @@ memory of past conversations, agent-to-agent dialogue rules.
 
 ### Commits
 - `4c20d14` — S21: human-agent conversation — say action, local speech, chat route with model replies, conversation log, console chat [pushed]
+
+## S22 � Social Interaction (in progress)
+
+### Plan (2026-10-08)
+Participant mode becomes interactive rather than observational
+(roadmap S22): entities can exchange things and move together. Give,
+take and a genuinely atomic trade move objects and resources between
+adjacent inventories, every transfer recorded on the timeline; follow
+makes an entity walk with another (a directive the engine honors in
+the tick); and the group route sweeps nearby agents into following
+the participant � the Void's first retinue. The verification is the
+trade: human hands an object to an agent, both sides validated
+before anything moves, and the resulting inventory/world state is
+exactly what the timeline says it is.
+
+### Scope (2026-10-08)
+In: `give`/`take`/`trade` actions (adjacent targets, whole objects or
+resource amounts, atomic trades, TRANSFER events); `follow`/`unfollow`
+(directives honored by the engine's tick, FOLLOW events); the group
+route (agents within a radius start/stop following the participant);
+participant-facing routes; tests.
+Out: negotiated consent (an agent deciding whether to accept a trade
+— the model's decision, a later sprint), theft rules, group
+persistence across worlds, shared inventories.
+
+### Implementation
+- `actions.py`: `give` and `take` move one leg (an object by id, or a
+  resource amount) between adjacent inventories; `trade` is the atomic
+  two-leg swap — both legs are validated before either moves, so a
+  failed trade never half-applies. All three require an adjacent
+  target and record a TRANSFER event naming kind, what, and both
+  parties. `follow`/`unfollow` set and clear directives (FOLLOW
+  events); following starts adjacent.
+- `world.py`: `transfer_object` (carried objects only — the grid and
+  inventories stay distinct), and the follow registry with
+  `step_toward`: one validated step per tick toward the target, or a
+  no-op once adjacent.
+- `engine.py`: a follow directive overrides cognition — a follower
+  spends its tick walking with its target rather than deciding.
+- The group route is the operator's sweep: agents within a radius
+  start (or stop) following the participant, recorded on the
+  timeline with `via: group`. It bypasses follow's adjacency
+  requirement by design — the engine walks them over.
+
+### Verification
+- Tests: pytest **331 passed** (21 new: give/take move objects and
+  record them; give requires carrying and adjacency (and refuses
+  self-targeting); resource legs; the atomic trade swapping objects;
+  a failed trade moving nothing; a mixed object-for-resource trade;
+  insufficient offers rejected; follow walking the follower to the
+  target; following overriding cognition; unfollow restoring autonomy;
+  follow's adjacency rule; and through the API — the roadmap's
+  headline (a human trades an object with an agent and the resulting
+  inventories/world state are exactly what the timeline says), a
+  trade the agent cannot back failing atomically, trade proximity,
+  give/take of resources, give-without-joining 409, and the group
+  sweep gathering, scattering and moving the group).
+- Live (dev API, world 75/76/78): the participant gathered 2 wood,
+  gave 1 to an agent, took 1 back (both TRANSFER events on the
+  timeline with correct kinds); a world of 3 agents swept into
+  following converged on the participant (1, 1 and 11 cells and
+  closing), with 3 FOLLOW events recorded.
+- Roadmap S22 checklist: human can trade an object with an agent and
+  the resulting inventory/world state is correct ✅; participant mode
+  is interactive rather than observational ✅ (give, take, trade,
+  group — all live).
+
+### Commits
+- (pending — not yet committed at time of writing)

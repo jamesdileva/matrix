@@ -197,6 +197,8 @@ class World:
         self._structure_of: dict[int, int] = {}  # object id -> structure id
         # Rolling speech buffer (S21): (speaker, position, message, tick).
         self._speeches: list[tuple[int, Position, str, int]] = []
+        # Follow directives (S22): follower -> target entity id.
+        self._following: dict[int, int] = {}
         self._events: list[Event] = list(events or [])
         self._next_event_id = (
             next_event_id
@@ -483,6 +485,85 @@ class World:
                      "distance": abs(position.x - spoke_at.x) + abs(position.y - spoke_at.y)}
                 )
         return heard
+
+    # ------------------------------------------------------------------
+    # Social interaction (S22)
+    # ------------------------------------------------------------------
+
+    def carried_by(self, object_id: int) -> int | None:
+        """Which entity carries an object, if any."""
+        for actor_id, items in self._inventory.items():
+            if object_id in items:
+                return actor_id
+        return None
+
+    def transfer_object(self, object_id: int, to_id: int) -> None:
+        """Move a carried object into another entity's inventory.
+
+        Requires the object to be carried by someone (not on the grid)
+        and the recipient to be in the world.
+        """
+        if to_id not in self._entities:
+            raise ValueError(f"unknown recipient {to_id!r}")
+        holder = self.carried_by(object_id)
+        if holder is None:
+            raise ValueError(f"object {object_id} is not carried by anyone")
+        self._inventory[holder].remove(object_id)
+        if not self._inventory[holder]:
+            del self._inventory[holder]
+        self._inventory.setdefault(to_id, []).append(object_id)
+
+    def set_follow(self, follower_id: int, target_id: int) -> None:
+        """`follower_id` starts walking with `target_id`."""
+        if target_id not in self._entities:
+            raise ValueError(f"unknown follow target {target_id!r}")
+        if follower_id not in self._entities:
+            raise ValueError(f"unknown follower {follower_id!r}")
+        self._following[follower_id] = target_id
+
+    def clear_follow(self, follower_id: int) -> bool:
+        """Stop following; False if there was nothing to stop."""
+        return self._following.pop(follower_id, None) is not None
+
+    def follow_target(self, follower_id: int) -> int | None:
+        """Who this entity follows, if anyone (and they still exist)."""
+        target = self._following.get(follower_id)
+        if target is not None and target not in self._entities:
+            self._following.pop(follower_id, None)
+            return None
+        return target
+
+    def step_toward(self, follower_id: int, target_id: int) -> "ActionResult":
+        """One validated step from the follower toward the target."""
+        from app.simulation.actions import execute_action
+
+        here = self._entities.get(follower_id)
+        there = self._entities.get(target_id)
+        if here is None or there is None:
+            raise ValueError(f"unknown entities in follow step: {follower_id} -> {target_id}")
+        dx = there.x - here.x
+        dy = there.y - here.y
+        for direction in ("east", "west") if abs(dx) >= abs(dy) else ("south", "north"):
+            if (direction == "east" and dx > 0) or (direction == "west" and dx < 0) or (
+                direction == "south" and dy > 0
+            ) or (direction == "north" and dy < 0):
+                return execute_action(
+                    self, follower_id, {"action": "move", "direction": direction}
+                )
+        # Adjacent (or overlapping): nothing to do this tick.
+        from app.simulation.actions import ActionResult
+
+        return ActionResult(
+            ok=True,
+            actor_id=follower_id,
+            action={"action": "look"},
+            event=self._add_event(
+                EventTypes.ACTION_EXECUTED,
+                actor_id=follower_id,
+                payload={"action": {"action": "look"}, "reason": "following"},
+            ),
+            data={"following": target_id},
+        )
 
     def resources(self, actor_id: int) -> dict:
         """An entity's whole ledger (a copy)."""

@@ -191,7 +191,16 @@ class Engine:
     def step(self) -> list[ActionResult]:
         """One tick: world advances, then every agent observes-decides-acts."""
         self.world.step()
-        return [agent.act() for agent in self.agents]
+        return [self._act_once(agent) for agent in self.agents]
+
+    def _act_once(self, agent: Agent) -> ActionResult:
+        """One agent's turn. A follow directive (S22) overrides
+        cognition: an entity walking with another spends its tick on
+        the step toward them."""
+        target = self.world.follow_target(agent.agent_id)
+        if target is not None:
+            return self.world.step_toward(agent.agent_id, target)
+        return agent.act()
 
     async def step_async(self) -> list[ActionResult]:
         """One tick for minds that think asynchronously (S08).
@@ -215,7 +224,7 @@ class Engine:
             if refresh is not None:
                 observation = agent.observe()
                 decision = await refresh(observation)
-            result = agent.act()
+            result = self._act_once(agent)
             if refresh is not None:
                 self._record_mind(agent, decision, observation, result)
             results.append(result)

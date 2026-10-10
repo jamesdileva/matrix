@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.simulation.events import Event
+from app.simulation.events import Event, EventTypes
 from app.simulation.world import (
     BLOCK_RECIPES,
     RESOURCE_OF_OBJECT,
@@ -70,6 +70,11 @@ HANDLERS = {
     "build": "_build",
     "remove": "_remove",
     "say": "_say",
+    "give": "_give",
+    "take": "_take",
+    "trade": "_trade",
+    "follow": "_follow",
+    "unfollow": "_unfollow",
 }
 
 
@@ -261,6 +266,176 @@ def _say(world: World, actor_id, action: dict) -> dict:
     message = message.strip()
     world.say(actor_id, message)
     return {"message": message}
+
+
+# ----------------------------------------------------------------------
+# Social interaction (S22)
+# ----------------------------------------------------------------------
+
+
+def _require_adjacent_entity(world: World, actor_id, action: dict):
+    """The target entity named by the action, adjacent to the actor."""
+    position = _require_actor(world, actor_id)
+    target_id = action.get("target")
+    if not isinstance(target_id, int) or isinstance(target_id, bool):
+        raise _Rejected("invalid_target", {"target": target_id})
+    if target_id == actor_id:
+        raise _Rejected("cannot_target_self", {})
+    target_position = world.entity_position(target_id)
+    if target_position is None:
+        raise _Rejected("unknown_target", {"target": target_id})
+    if not _within_reach(position, target_position):
+        raise _Rejected("target_out_of_reach", {"target": target_id})
+    return target_id, target_position
+
+
+def _give(world: World, actor_id, action: dict) -> dict:
+    """Hand something you carry to an adjacent entity (S22)."""
+    target_id, _ = _require_adjacent_entity(world, actor_id, action)
+    if "resource" in action:
+        return _transfer_resources(world, actor_id, target_id, action, "give")
+    return _transfer_object(world, actor_id, target_id, action, "give")
+
+
+def _take(world: World, actor_id, action: dict) -> dict:
+    """Take something an adjacent entity carries (S22).
+
+    The Void keeps no consent ledger yet — the transfer is recorded
+    either way, so the timeline says who took what from whom.
+    """
+    target_id, _ = _require_adjacent_entity(world, actor_id, action)
+    if "resource" in action:
+        return _transfer_resources(world, target_id, actor_id, action, "take")
+    return _transfer_object(world, target_id, actor_id, action, "take")
+
+
+def _trade(world: World, actor_id, action: dict) -> dict:
+    """Swap with an adjacent entity, atomically (S22).
+
+    Both legs are validated before either moves: if the other side
+    cannot deliver what is wanted, nothing changes hands.
+    """
+    target_id, _ = _require_adjacent_entity(world, actor_id, action)
+    offer = action.get("give") or {}
+    want = action.get("want") or {}
+    if not isinstance(offer, dict) or not isinstance(want, dict):
+        raise _Rejected("invalid_trade", {})
+
+    # Validate both legs first — an atomic trade never half-applies.
+    if "object_id" in want:
+        if world.carried_by(want["object_id"]) != target_id:
+            raise _Rejected("trade_target_lacks_object", {"object_id": want["object_id"]})
+    elif "resource" in want:
+        kind, amount = _resource_leg(want)
+        if world.resource_count(target_id, kind) < amount:
+            raise _Rejected("trade_target_lacks_resource", {"resource": kind, "amount": amount})
+    else:
+        raise _Rejected("invalid_trade_want", {})
+
+    if "object_id" in offer:
+        if world.carried_by(offer["object_id"]) != actor_id:
+            raise _Rejected("trade_self_lacks_object", {"object_id": offer["object_id"]})
+    elif "resource" in offer:
+        kind, amount = _resource_leg(offer)
+        if world.resource_count(actor_id, kind) < amount:
+            raise _Rejected("trade_self_lacks_resource", {"resource": kind, "amount": amount})
+    else:
+        raise _Rejected("invalid_trade_give", {})
+
+    # Both legs validated — apply.
+    if "object_id" in offer:
+        _apply_object(world, offer["object_id"], actor_id, target_id, "trade")
+    else:
+        kind, amount = _resource_leg(offer)
+        world.spend_resource(actor_id, kind, amount)
+        world.credit_resource(target_id, kind, amount)
+    if "object_id" in want:
+        _apply_object(world, want["object_id"], target_id, actor_id, "trade")
+    else:
+        kind, amount = _resource_leg(want)
+        world.spend_resource(target_id, kind, amount)
+        world.credit_resource(actor_id, kind, amount)
+    return {"traded_with": target_id, "gave": offer, "received": want}
+
+
+def _transfer_object(world: World, from_id: int, to_id: int, action: dict, kind: str) -> dict:
+    object_id = action.get("object_id")
+    if world.carried_by(object_id) != from_id:
+        raise _Rejected("not_carrying", {"object_id": object_id})
+    _apply_object(world, object_id, from_id, to_id, kind)
+    return {"object_id": object_id, "from": from_id, "to": to_id}
+
+
+def _apply_object(world: World, object_id: int, from_id: int, to_id: int, kind: str) -> None:
+    world.transfer_object(object_id, to_id)
+    obj = world.get_object(object_id)
+    world._add_event(
+        EventTypes.TRANSFER,
+        actor_id=from_id,
+        target_id=to_id,
+        payload={
+            "kind": kind,
+            "what": "object",
+            "object_id": object_id,
+            "type": obj.type if obj else None,
+        },
+    )
+
+
+def _transfer_resources(world: World, from_id: int, to_id: int, action: dict, kind: str) -> dict:
+    resource_kind, amount = _resource_leg(action)
+    if world.resource_count(from_id, resource_kind) < amount:
+        raise _Rejected(
+            "insufficient_resources",
+            {"resource": resource_kind, "amount": amount,
+             "carried": world.resources(from_id)},
+        )
+    world.spend_resource(from_id, resource_kind, amount)
+    world.credit_resource(to_id, resource_kind, amount)
+    world._add_event(
+        EventTypes.TRANSFER,
+        actor_id=from_id,
+        target_id=to_id,
+        payload={"kind": kind, "what": "resource",
+                 "resource": resource_kind, "amount": amount},
+    )
+    return {"resource": resource_kind, "amount": amount, "from": from_id, "to": to_id}
+
+
+def _resource_leg(leg: dict) -> tuple[str, int]:
+    resource_kind = leg.get("resource")
+    amount = leg.get("amount", 1)
+    if not isinstance(resource_kind, str):
+        raise _Rejected("invalid_resource", {"resource": resource_kind})
+    if not isinstance(amount, int) or isinstance(amount, bool) or amount < 1:
+        raise _Rejected("invalid_amount", {"amount": amount})
+    return resource_kind, amount
+
+
+def _follow(world: World, actor_id, action: dict) -> dict:
+    """Start walking with an adjacent entity (S22)."""
+    target_id, _ = _require_adjacent_entity(world, actor_id, action)
+    world.set_follow(actor_id, target_id)
+    world._add_event(
+        EventTypes.FOLLOW,
+        actor_id=actor_id,
+        target_id=target_id,
+        payload={"kind": "started"},
+    )
+    return {"following": target_id}
+
+
+def _unfollow(world: World, actor_id, action: dict) -> dict:
+    """Stop following."""
+    _require_actor(world, actor_id)
+    if not world.clear_follow(actor_id):
+        raise _Rejected("not_following", {})
+    world._add_event(
+        EventTypes.FOLLOW,
+        actor_id=actor_id,
+        payload={"kind": "stopped"},
+    )
+    return {"following": None}
 
 
 # ----------------------------------------------------------------------

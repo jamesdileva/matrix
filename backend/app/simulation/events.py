@@ -39,6 +39,9 @@ class EventTypes:
     STRUCTURE_CREATED = "STRUCTURE_CREATED"
     # S21: speech. Something said aloud, by anyone, is a fact too.
     SPEECH = "SPEECH"
+    # S22: social facts. Transfers between inventories and following.
+    TRANSFER = "TRANSFER"
+    FOLLOW = "FOLLOW"
 
 
 @dataclass(frozen=True)
