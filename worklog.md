@@ -1929,4 +1929,4 @@ rooms and multi-step puzzles, doors that close, guards.
   with a known solution ✅.
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `bf74351` — S23: prison sandbox — enclosed room, blocked door, destination sandbox, ESCAPED event, scripted solver [pushed]
