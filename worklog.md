@@ -1875,4 +1875,4 @@ persistence across worlds, shared inventories.
   group — all live).
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `688a5ac` — S22: social interaction — give/take/atomic trade, follow directives, group sweep, participant social routes [pushed]
