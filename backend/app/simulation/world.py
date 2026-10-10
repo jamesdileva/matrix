@@ -507,8 +507,11 @@ class World:
         return self._structure_of.get(object_id)
 
     def structure_for_cell(self, position: Position) -> int | None:
-        """The structure a new block at `position` would join: the one
-        an adjacent block belongs to (lowest id wins when several meet).
+        """The structure a new block at `position` would join.
+
+        When several adjacent structures meet at the new block, they
+        merge into the oldest — two walls that touch are one building,
+        whichever order they were raised in.
         """
         found = set()
         for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
@@ -517,7 +520,24 @@ class World:
             structure_id = self._structure_of.get(object_id) if object_id else None
             if structure_id is not None:
                 found.add(structure_id)
-        return min(found) if found else None
+        if not found:
+            return None
+        target = min(found)
+        for other in found - {target}:  # merge the rest into the oldest
+            self._merge_structures(target, other)
+        return target
+
+    def _merge_structures(self, target_id: int, source_id: int) -> None:
+        """Fold one structure into another."""
+        source = self._structures.pop(source_id, None)
+        if source is None:  # pragma: no cover - set and rows agree
+            return
+        target = self._structures[target_id]
+        for object_id in source.components:
+            self._structure_of[object_id] = target_id
+        target.components.extend(source.components)
+        if target.purpose is None:
+            target.purpose = source.purpose
 
     def create_structure(self, *, owner: int | None, purpose: str | None) -> int:
         """Start a new structure; emits STRUCTURE_CREATED."""

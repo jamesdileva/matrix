@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S19 — House Experiment
-- Completed sprints: S01–S18, S06B (S18 done 2026-10-08)
+- **Next sprint:** S20 — Human Avatar
+- Completed sprints: S01–S19, S06B (S19 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -1596,3 +1596,84 @@ block types, the house experiment itself (S19).
 
 ### Commits
 - `736594c` — S18: building system — blocks with material costs, structures, build/remove actions, operator injection [pushed]
+
+## S19 � House Experiment (in progress)
+
+### Plan (2026-10-08)
+The first scenario with a goal rather than a mechanic (roadmap S19 /
+guide �14): a small population is told "Build a house." and nothing
+else � no shape, size, material or room count. The scenario engine
+grants materials, drives the tick, and scores the results: completion
+(a structure that actually encloses space � the design-agnostic
+definition of a house), material use, construction time, cooperation
+(distinct builders on one structure), design, and failure. The
+calibration is a scripted builder completing a known valid house;
+the model mode then runs the identical scenario with real minds, so
+we see what different populations build.
+
+### Scope (2026-10-08)
+In: `app/experiments/house.py` — the scenario engine (cleared lot,
+granted materials, driven ticks, scoring across the six measures), a
+scripted `HouseBuilderPolicy` that completes a known valid house (a
+closed 4x4 ring), the model mode through the S07 seam, JSON report +
+export, CLI, tests; roadblock: no.
+Out: multi-room/house-quality judging beyond enclosure, persistence
+of the finished structures beyond the run, population branching,
+agents choosing *not* to build (a failure mode the scoring records,
+not handles).
+
+### Implementation
+- `backend/app/experiments/house.py` — the scenario engine: a cleared
+  lot (flat, object-free — the design is the agents' to invent and the
+  scripted route cannot be blocked), a material grant of exactly a
+  ring's worth per builder, a driven tick through `step_async`, and
+  scoring across the roadmap's six measures.
+- **Completion** is design-agnostic on purpose: a flood fill from
+  beyond the structure's bounding box that cannot reach a cell means
+  that cell is enclosed — a closed ring is a house, a wall line is
+  not, and *how* the ring came to be (shape, size, material, rooms) is
+  never prescribed. (The first definition — "all four neighbours are
+  blocks" — was wrong: interior cells neighbour each other, not just
+  walls.)
+- `HouseBuilderPolicy`: the calibration. `_house_script` generates a
+  move/build walk around the *outside* of the ring, building inward,
+  with the start corner rotating — so one builder raises the house and
+  two builders share it from opposite corners without fighting over
+  cells. The scenario's cleared lot is what makes the exact script
+  safe; the policy documents that it opts into that guarantee.
+- **Structure merging** (engine): when a new block touches several
+  structures they merge into the oldest — two walls that touch are one
+  building, whichever order they were raised in. Without it, two
+  builders approaching from opposite corners split the house in two.
+- The model mode swaps only the policy: `ModelPolicy` with a
+  house-system prompt, everything else identical — the scenario engine
+  never changes (the roadmap's requirement).
+
+### Verification
+- Tests: pytest **292 passed** (12 new: the script's closed ring with
+  no double-built cells; rotated corners laying the same ring from
+  four stands; a wall enclosing nothing; the scripted agent completing
+  a known valid house (12 blocks, 4 enclosed cells, owner, purpose,
+  materials exactly); construction time measured first→last build
+  tick; cooperation (two builders, one structure); the idler recorded
+  as a failure; house size as a free parameter (5x5 → 16 blocks, 9
+  enclosed); the policy unit path; model mode through a stub provider
+  building through the unchanged scenario; unknown mode rejected;
+  experiment row and export).
+- Live control (dev DB, scripted): **1 house completed** — 12 wood
+  blocks, 4 enclosed cells, 4x4, built by 2 cooperating agents over
+  ticks 2..22, with the third (wanderer) recorded as a failure.
+- Live model runs (qwen2.5:7b-instruct through the identical
+  scenario): a 2-agent, 20-tick run placed 3 blocks (purpose-carrying
+  structures, no enclosure); an interrupted 60-tick run had placed 11
+  blocks across 9 structures before its timeout — the model builds
+  on instruction but scatters rather than planning contiguity. Both
+  are honest measurements of what the current prompt buys; longer
+  runs and prompt work are the obvious next lever (the scenario engine
+  needs no change).
+- Roadmap S19 checklist: at least one scripted agent completes a known
+  valid house ✅; LLM agents tested without changing the scenario
+  engine ✅ (same runner, same scoring, only the policy swapped).
+
+### Commits
+- (pending — not yet committed at time of writing)

@@ -166,6 +166,23 @@ curl -s -X POST localhost:8000/api/worlds/1/actions \
 curl -s localhost:8000/api/worlds/1/structures     # the world's buildings
 ```
 
+## House experiment (S19+)
+
+```bash
+cd backend
+.venv/Scripts/python -m app.experiments.house                          # control: scripted builders
+.venv/Scripts/python -m app.experiments.house --mode model --ticks 20  # live ModelPolicies
+.venv/Scripts/python -m app.experiments.house --population 4 --house-size 5
+.venv/Scripts/python -m app.experiments.house --export out.json
+```
+
+"Build a house." — shape, size, material and room count are the
+agents' to decide. Each builder is granted exactly a ring's worth of
+wood. Scored: completion (a flood-fill enclosure test — design-
+agnostic), material use, construction time, cooperation, design, and
+failure. The scripted control completes a 4x4 ring (12 blocks, 4
+enclosed cells, 2 cooperating builders).
+
 ## Lineage experiment (S11+)
 
 ```bash
