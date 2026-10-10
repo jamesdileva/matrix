@@ -1739,4 +1739,4 @@ participants.
   ticking, and the participant is visible to the agents.
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `09d797a` — S20: human avatar — participant entity, Godot participant mode, console mode switch, participant smoke [pushed]
