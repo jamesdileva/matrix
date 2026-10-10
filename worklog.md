@@ -1993,4 +1993,4 @@ remembering failed attempts across runs.
   sandbox transition, asserted in tests).
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `85a6ba0` — S24: agent escape — objective without the script, escape metrics, no host-level escape, live model attempts [pushed]
