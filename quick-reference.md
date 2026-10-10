@@ -249,6 +249,20 @@ records an ESCAPED event on the world timeline. The scripted solver
 proves the puzzle is solvable; S24 takes the script away and asks the
 agents to solve it themselves.
 
+## Agent escape (S24+)
+
+```bash
+cd backend
+.venv/Scripts/python -m app.experiments.escape --solver mock --ticks 40      # a control attempt
+.venv/Scripts/python -m app.experiments.escape --solver scripted             # the known-solution reference
+.venv/Scripts/python -m app.experiments.escape --solver model --ticks 40     # a live mind attempts it
+```
+
+Reported per attempt: escaped, escape tick, actions attempted, actions
+rejected (failed attempts) and cells explored. No host-level escape is
+possible — only the simulated transition into the sandbox fires
+ESCAPED.
+
 ## Lineage experiment (S11+)
 
 ```bash

@@ -48,7 +48,7 @@ class Prison:
     room: tuple[int, int, int, int] = ROOM
     door: tuple[int, int] = DOOR
     sandbox: tuple[int, int, int, int] = SANDBOX
-    spawn: tuple[int, int] = (4, 4)
+    spawn: tuple[int, int] = (4, 3)
     tree: tuple[int, int] = (5, 9)
     obstacle: tuple[tuple[int, int], tuple[int, int]] = ((8, 8), (8, 9))
 

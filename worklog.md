@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S24 — Agent Escape
-- Completed sprints: S01–S23, S06B (S23 done 2026-10-08)
+- **Next sprint:** S25 — Cooperative Escape
+- Completed sprints: S01–S24, S06B (S24 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -1930,3 +1930,67 @@ rooms and multi-step puzzles, doors that close, guards.
 
 ### Commits
 - `bf74351` — S23: prison sandbox — enclosed room, blocked door, destination sandbox, ESCAPED event, scripted solver [pushed]
+
+## S24 � Agent Escape (in progress)
+
+### Plan (2026-10-08)
+Take the scripted solution away (roadmap S24). The same prison from
+S23, but now the agent is given an objective � escape � and must
+attempt it with nothing but the world's ordinary actions: explore,
+discover the blocked door, work out that the stone is carryable, and
+walk out. Every attempt is recorded, failed attempts included; the
+escape still counts only as the simulated transition, never through
+any host-level shortcut. Metrics: escape, escape tick, actions,
+rejections, cells explored.
+
+### Scope (2026-10-08)
+In: `app/experiments/escape.py` — the objective (an escape system
+prompt for model minds), the metrics (attempts, rejections, cells
+explored, escape tick), the "no host-level escape" guarantee enforced
+and tested, scripted/walker/mock/model modes, CLI, tests.
+Out: cooperative escape (S25), multi-room puzzles, guards, agents
+remembering failed attempts across runs.
+
+### Implementation
+- `app/experiments/escape.py`: the same prison from S23, the script
+  removed. The objective reaches a model mind through the escape
+  system prompt (explore, your cells are already shown, move to see
+  more, objects in your way can be carried). Metrics come off the
+  world timeline: actions attempted, actions rejected (failed
+  attempts), cells explored, and the escape tick — measured the same
+  way for every solver, so a mocked attempt and a model attempt are
+  comparable numbers.
+- The scripted solver from S23 is kept as a mode: not as the
+  scenario's solution, but as the regression reference the metrics
+  are known-correct against (escape at tick 13, carrying the stone).
+- The walker is the injected-action case: an operator (or a naive
+  policy) pushing move actions is stopped by the blocked door exactly
+  like an agent — no host-level shortcut exists, and the ESCAPED event
+  only fires on the simulated transition into the sandbox.
+
+### Verification
+- Tests: pytest **349 passed** (10 new: the scripted reference escapes
+  at tick 13 carrying the stone; the walker fails with rejections
+  logged; the mock wanders and fails; injected actions cannot shortcut
+  the puzzle (the walker ends inside the room); only the transition
+  into the sandbox escapes; model mode requires a provider; the escape
+  objective reaches the model verbatim with its own bounded
+  observation; model mode runs the scenario; unknown solvers rejected).
+- Live model attempts (qwen2.5:7b-instruct, 40 ticks each):
+  - Attempt 1 (original prompt, spawn deep in the room): the model
+    fell into a look-loop — 40 actions, 1 cell explored, 0 escapes.
+    Its own thought summaries said "exploring" while it stood still:
+    from the spawn point no wall is visible, so looking felt like
+    progress.
+  - Attempt 2 (spawn one cell from the north wall + a prompt that
+    says looking reveals nothing new): the model explored
+    **systematically** — 13 cells, varied directions, 2 rejected
+    moves into walls — but did not reach the door within 40 ticks.
+- Roadmap S24 checklist: LLM agents can attempt the puzzle ✅ (two
+  documented attempts, metrics recorded); no host-level escape is
+  possible ✅ (the walker/injection case is stopped by the door);
+  only the simulated transition counts ✅ (ESCAPED fires only on the
+  sandbox transition, asserted in tests).
+
+### Commits
+- (pending — not yet committed at time of writing)
