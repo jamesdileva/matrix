@@ -1806,4 +1806,4 @@ memory of past conversations, agent-to-agent dialogue rules.
   receives a model-generated response ✅ (live, through the real API).
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `4c20d14` — S21: human-agent conversation — say action, local speech, chat route with model replies, conversation log, console chat [pushed]
