@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S23 — Prison Sandbox
-- Completed sprints: S01–S22, S06B (S22 done 2026-10-08)
+- **Next sprint:** S24 — Agent Escape
+- Completed sprints: S01–S23, S06B (S23 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -1876,3 +1876,57 @@ persistence across worlds, shared inventories.
 
 ### Commits
 - `688a5ac` — S22: social interaction — give/take/atomic trade, follow directives, group sweep, participant social routes [pushed]
+
+## S23 � Prison Sandbox (in progress)
+
+### Plan (2026-10-08)
+The first escape environment (roadmap S23 / guide �15): a room with
+one door, a door-blocking object you can carry away, a far sandbox,
+and a recorded escape. The verification is a deterministic scripted
+solver completing the escape � proof the puzzle is solvable before any
+agent is asked to solve it for real (S24 removes the scripted
+solution). The mechanics are all existing ones on purpose: carry the
+blocking object aside, walk out, cross into the sandbox.
+
+### Scope (2026-10-08)
+In: `app/experiments/prison.py` — the puzzle (enclosed room, interior
+obstacle, door blocked by a movable stone, destination sandbox, ESCAPED
+event on entering the sandbox), a deterministic `EscapeSolverPolicy`,
+a control walker that cannot escape without solving, tests, CLI.
+Out: agent-facing escape objectives and metrics (S24), multiple
+rooms and multi-step puzzles, doors that close, guards.
+
+### Implementation
+- `app/experiments/prison.py`: the puzzle is built out of ordinary
+  world rules — a walled room with one door gap, a stone sitting in
+  that gap (carryable, like any object), a wall stub inside, a tree,
+  and the sandbox beyond the wall. The escape is an ESCAPED event the
+  moment an entity crosses into the sandbox, recorded on the world
+  timeline like every other fact.
+- `EscapeSolverPolicy`: the deterministic solution — walk beside the
+  door stone, pick it up (it comes along), walk through the gap, keep
+  going east into the sandbox. It is an experiment instrument, not a
+  mind: it knows the layout because the scenario defines it. S24 takes
+  it away.
+- `WalkEastPolicy`: the control — walks east and gets nowhere, because
+  the door is blocked. Its failure is what makes the solver's escape
+  meaningful.
+
+### Verification
+- Tests: pytest **340 passed** (9 new: the room is enclosed wall by
+  wall except the door; the door is blocked by a movable stone; the
+  sandbox's west border has no opening but the door; the scripted
+  solver escapes carrying the stone and ends inside the sandbox; the
+  experiment row completes; exactly one ESCAPED event on the world
+  timeline, its tick matching the report; the control cannot escape
+  and ends inside the room; the solver is deterministic; unknown
+  solvers rejected).
+- Live (dev DB): the scripted solver **ESCAPED at tick 12** at
+  (12,7) carrying the stone; the walker did not escape, stuck at
+  (10,4) — the blocked door holding.
+- Roadmap S23 checklist: a deterministic scripted solver can escape ✅
+  — the puzzle is provably solvable. End goal: a safe simulated prison
+  with a known solution ✅.
+
+### Commits
+- (pending — not yet committed at time of writing)

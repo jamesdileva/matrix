@@ -235,6 +235,20 @@ agnostic), material use, construction time, cooperation, design, and
 failure. The scripted control completes a 4x4 ring (12 blocks, 4
 enclosed cells, 2 cooperating builders).
 
+## Prison escape (S23+)
+
+```bash
+cd backend
+.venv/Scripts/python -m app.experiments.prison                          # the deterministic solution
+.venv/Scripts/python -m app.experiments.prison --solver walker          # the control: solves nothing
+```
+
+An enclosed room with one door, the door blocked by a stone you can
+carry away, and the destination sandbox beyond. Entering the sandbox
+records an ESCAPED event on the world timeline. The scripted solver
+proves the puzzle is solvable; S24 takes the script away and asks the
+agents to solve it themselves.
+
 ## Lineage experiment (S11+)
 
 ```bash

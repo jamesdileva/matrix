@@ -42,6 +42,8 @@ class EventTypes:
     # S22: social facts. Transfers between inventories and following.
     TRANSFER = "TRANSFER"
     FOLLOW = "FOLLOW"
+    # S23: the escape. Leaving the sandbox is a fact too.
+    ESCAPED = "ESCAPED"
 
 
 @dataclass(frozen=True)
