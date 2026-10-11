@@ -2112,4 +2112,4 @@ regenerate, scoring beyond escape/no-escape.
   rules ✅. A self-contained evolutionary game exists ✅.
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `9488a66` — S26: builder vs escapee — the arms race, adaptive rules, rounds with builder feedback [pushed]
