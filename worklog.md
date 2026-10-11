@@ -2178,5 +2178,5 @@ immortal today — statistics count what exists).
   End goal: multiple artificial groups can inhabit one world ✅.
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `a5a139c` — S27: population manager — spawn rules, multi-group worlds, statistics, relationships [pushed]
 
