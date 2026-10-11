@@ -74,6 +74,13 @@ class Agent:
     # current_goal), because a decision that cannot see what just
     # happened cannot learn from it.
     memory: AgentMemory = field(default_factory=AgentMemory)
+    # Group awareness (S27): how many members this agent's population
+    # has. Set by the engine when a population manager governs the
+    # world; None in the plain engine, where populations are a database
+    # concept rather than a simulated one.
+    population_size_provider: object | None = field(
+        default=None, repr=False, compare=False
+    )
     _world: World | None = field(default=None, repr=False, compare=False)
 
     def spawn(self, world: World, position: Position) -> None:
@@ -179,6 +186,18 @@ class Agent:
             # and what they are after — cooperation needs a shared
             # picture, not telepathy.
             "teammates": world.teammates_of(self.agent_id),
+            # Group awareness (S27): which population this agent is one
+            # of, and how big it is — the self seen as a member, not
+            # only as an individual.
+            "population": {
+                "id": self.population_id,
+                "size": (
+                    self.population_size_provider(self.population_id)
+                    if self.population_size_provider is not None
+                    and self.population_id is not None
+                    else None
+                ),
+            },
         }
 
     def decide(self) -> dict:

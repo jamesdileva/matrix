@@ -46,6 +46,9 @@ class EventTypes:
     ESCAPED = "ESCAPED"
     # S25: cooperation. A door opened by joint occupancy is a fact too.
     DOOR_OPENED = "DOOR_OPENED"
+    # S27: populations. A group coming to be — founded, or a new
+    # member arriving under its spawn rule — is a fact too.
+    POPULATION_SPAWN = "POPULATION_SPAWN"
 
 
 @dataclass(frozen=True)

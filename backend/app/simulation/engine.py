@@ -30,21 +30,43 @@ from app.simulation.world import Position, World
 
 
 class Engine:
-    def __init__(self, world: World, population_id: int | None = None) -> None:
+    def __init__(
+        self,
+        world: World,
+        population_id: int | None = None,
+        populations: "PopulationManager | None" = None,
+    ) -> None:
         self.world = world
         self.population_id = population_id
+        # S27: the populations living in this world, when managed. None
+        # for the plain single-population engine (experiments that run
+        # their own spawning).
+        self.populations = populations
         self._agents: dict[int, Agent] = {}
 
     def spawn_agent(self, agent: Agent, position: Position) -> None:
         agent.spawn(self.world, position)
         if agent.population_id is None:
             agent.population_id = self.population_id
+        if self.populations is not None:
+            # Group awareness (S27): an agent that can see its own
+            # population's size can weigh being one of many against
+            # being one of few.
+            agent.population_size_provider = self.populations.population_size
         self._agents[agent.agent_id] = agent
 
     @property
     def agents(self) -> list[Agent]:
         """All agents, in ascending agent_id order."""
         return [self._agents[i] for i in sorted(self._agents)]
+
+    def agent(self, agent_id: int) -> Agent | None:
+        """One agent by id, or None."""
+        return self._agents.get(agent_id)
+
+    def next_agent_id(self) -> int:
+        """The id the next spawned or born agent will take."""
+        return self._next_agent_id()
 
     @property
     def has_model_policies(self) -> bool:
@@ -91,6 +113,15 @@ class Engine:
             raise ValueError(f"unknown parent agent {parent_id!r}")
         if parent.status != "alive":
             raise BirthError(f"parent {parent_id} is not alive")
+        # S27: a population's rule is a carry capacity. A group at its
+        # member limit cannot grow, whatever the parent intends — the
+        # cap is the rule's, not the agent's.
+        if self.populations is not None and not self.populations.can_reproduce(
+            parent.population_id
+        ):
+            raise BirthError(
+                f"population {parent.population_id} is at its member limit"
+            )
 
         child_position = position if position is not None else self._free_cell_near(parent)
         if child_position is None:

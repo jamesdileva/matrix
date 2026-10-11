@@ -21,6 +21,7 @@ from app.host import (
 from app.simulation.errors import BirthError
 from app.simulation.events import EventTypes
 from app.simulation.model_policy import ModelPolicy
+from app.simulation.population import PopulationManager, SpawnRule
 
 router = APIRouter(tags=["worlds"])
 
@@ -35,6 +36,21 @@ class CreateWorldRequest(BaseModel):
     # S08: which minds inhabit the world. "model" is an explicit opt-in —
     # a configured provider alone never starts a model world.
     brains: str = BRAINS_SCRIPTED
+    # S27: the world's populations as spawn rules. Omitted means one
+    # population — S09's shape, holding every founding agent.
+    populations: list[dict] | None = None
+
+
+class SpawnRulePayload(BaseModel):
+    """A population's spawn rule, as data (S27)."""
+
+    name: str
+    members: int = Field(default=1, ge=0, le=64)
+    policies: list[str] = Field(default_factory=lambda: ["wander"])
+    spawn_zone: list[int] | None = None
+    max_members: int | None = Field(default=None, ge=0, le=256)
+    top_up: bool = False
+    stipend: dict[str, int] = Field(default_factory=dict)
 
 
 class BirthRequest(BaseModel):
@@ -90,9 +106,11 @@ async def create_world(payload: CreateWorldRequest, request: Request) -> dict:
             tps=payload.tick_rate,
             autostart=payload.autostart,
             brains=payload.brains,
+            populations=payload.populations,
         )
     except ValueError as exc:
-        # Unknown brains, or a misconfigured model provider.
+        # Unknown brains, a bad spawn rule, or a misconfigured model
+        # provider.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _state(host)
 
@@ -535,3 +553,78 @@ def create_birth(world_id: int, payload: BirthRequest, request: Request) -> dict
         "position": child.position.to_dict(),
         "inheritance": born.payload["inheritance"],
     }
+
+
+# ----------------------------------------------------------------------
+# Populations (S27)
+# ----------------------------------------------------------------------
+
+
+def _populations(request: Request, world_id: int) -> PopulationManager:
+    host = _host(request, world_id)
+    manager = host.engine.populations
+    if manager is None:  # pragma: no cover - every created world has one
+        raise HTTPException(status_code=409, detail=f"world {world_id} has no populations")
+    return manager
+
+
+@router.get("/worlds/{world_id}/populations")
+def list_populations(world_id: int, request: Request) -> dict:
+    """Every population in the world, with statistics.
+
+    The groups themselves — sizes, generations, resources, births,
+    arrivals — straight from the manager, so two populations sharing
+    one world are as visible as two agents sharing one cell.
+    """
+    return {"world_id": world_id, **_populations(request, world_id).world_statistics()}
+
+
+@router.post("/worlds/{world_id}/populations", status_code=201)
+def create_population(world_id: int, payload: SpawnRulePayload, request: Request) -> dict:
+    """Found a new population in a live world, from its spawn rule.
+
+    The world keeps running while the group takes shape: the rule gets
+    a database row, the founding members appear through the engine's
+    spawn path, and they are visible to the other populations at once.
+    """
+    _populations(request, world_id)
+    rule = SpawnRule(
+        name=payload.name,
+        members=payload.members,
+        policies=tuple(payload.policies),
+        spawn_zone=tuple(payload.spawn_zone) if payload.spawn_zone else None,
+        max_members=payload.max_members,
+        top_up=payload.top_up,
+        stipend=dict(payload.stipend),
+    )
+    try:
+        statistics = request.app.state.worlds.add_population(world_id, rule)
+    except ValueError as exc:  # a rule the world cannot honor (bad zone, ...)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"world_id": world_id, "population": statistics}
+
+
+@router.get("/worlds/{world_id}/populations/{population_id}")
+def get_population(world_id: int, population_id: int, request: Request) -> dict:
+    manager = _populations(request, world_id)
+    try:
+        statistics = manager.statistics(population_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"world_id": world_id, "population": statistics}
+
+
+@router.get("/worlds/{world_id}/agents/{agent_id}/relationships")
+def get_relationships(world_id: int, agent_id: int, request: Request) -> dict:
+    """How one agent stands to every other (S27).
+
+    Kin from the lineage, following and teams from the world,
+    population membership — the social map, derived rather than stored,
+    so it can never disagree with the world it describes.
+    """
+    manager = _populations(request, world_id)
+    try:
+        relationships = manager.relationships(agent_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"world_id": world_id, "agent_id": agent_id, "relationships": relationships}

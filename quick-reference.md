@@ -290,6 +290,31 @@ granted), Population B escapes it (removing the blocks in the way).
 Every escape thickens the next round's prison by one layer — the
 builder receives the outcome and the rules carry forward.
 
+## Populations (S27+)
+
+```bash
+# a world with three groups, founded from their spawn rules
+curl -s -X POST localhost:8000/api/worlds -H "Content-Type: application/json" \
+  -d '{"seed": "many-groups", "autostart": false, "populations": [
+    {"name": "builders", "members": 2, "policies": ["gather"], "stipend": {"wood": 3}},
+    {"name": "wanderers", "members": 3, "policies": ["wander"]},
+    {"name": "foragers", "members": 2, "policies": ["forage"], "max_members": 3, "top_up": true}]}'
+# statistics + totals for every group in the world
+curl -s localhost:8000/api/worlds/1/populations
+# found a group in the live world (201)
+curl -s -X POST localhost:8000/api/worlds/1/populations -H "Content-Type: application/json" \
+  -d '{"name": "latecomers", "members": 2, "policies": ["wander"]}'
+# how one agent stands to every other
+curl -s localhost:8000/api/worlds/1/agents/1/relationships
+```
+
+A population is a group with a spawn rule: founding size, rotating
+policies (`wander`/`forage`/`gather`/`model`), an optional spawn zone,
+a member cap (births past it are refused), top-up regrowth, and a
+resource stipend. Statistics are computed, relationships derived
+(kin → following → teammates → population → strangers) — an agent
+sees its own population's id and live size in every observation.
+
 ## Lineage experiment (S11+)
 
 ```bash

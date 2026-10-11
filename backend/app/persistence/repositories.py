@@ -183,6 +183,15 @@ class AgentRecorder:
         self._population_id = population_id
         self._local_to_global = dict(local_to_global)
 
+    def remember(self, local_id: int, global_id: int) -> None:
+        """Teach the recorder an agent that was not born here (S27).
+
+        A population founded later has members with global ids assigned
+        by the registry; their births will be recorded against those
+        parents like any other.
+        """
+        self._local_to_global[local_id] = global_id
+
     def __call__(self, event: Event) -> None:
         if event.type != EventTypes.AGENT_BORN:
             return

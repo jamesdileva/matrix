@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "./api";
-import type { AgentDetail } from "./api";
+import type { AgentDetail, Relationship } from "./api";
 import { LineageExplorer } from "./LineageExplorer";
 import { buttonStyle, colors, font, headingStyle, panelStyle } from "./theme";
 
@@ -99,6 +99,10 @@ export function AgentInspector({ worldId, agentId, onClose, onSelectAgent }: Pro
       <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: "0.4rem" }}>
         <LineageExplorer worldId={worldId} agentId={detail.id} onSelectAgent={onSelectAgent} />
       </div>
+
+      <Block title={`relationships (${detail.id})`}>
+        <Relationships worldId={worldId} agentId={detail.id} onSelectAgent={onSelectAgent} />
+      </Block>
 
       <Block title="current action">
         {detail.last_action ? (
@@ -238,6 +242,81 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
       </div>
       {children}
     </div>
+  );
+}
+
+// S27: how this agent stands to every other — kin, following, teams,
+// and the population boundary (neighbor vs stranger). Derived facts,
+// polled live; clicking one navigates to that agent.
+function Relationships({
+  worldId,
+  agentId,
+  onSelectAgent,
+}: {
+  worldId: number;
+  agentId: number;
+  onSelectAgent: (agentId: number) => void;
+}) {
+  const [relations, setRelations] = useState<Relationship[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const page = await api.relationships(worldId, agentId);
+        if (!cancelled) {
+          setRelations(page.relationships);
+          setError(null);
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      }
+    }
+    void load();
+    const timer = window.setInterval(() => void load(), 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [worldId, agentId]);
+
+  if (error) {
+    return <span style={{ fontSize: "0.68rem", color: colors.error }}>{error}</span>;
+  }
+  if (relations.length === 0) {
+    return <span style={{ fontSize: "0.68rem", color: colors.dim }}>alone in the world</span>;
+  }
+  return (
+    <ul style={{ listStyle: "none", margin: 0, padding: 0, fontSize: "0.68rem", display: "flex", flexDirection: "column", gap: "0.15rem", maxHeight: 160, overflowY: "auto" }}>
+      {relations.map((relation) => (
+        <li key={relation.agent_id}>
+          <button
+            style={{
+              background: "none",
+              border: "none",
+              color: colors.text,
+              cursor: "pointer",
+              fontFamily: font,
+              fontSize: "0.68rem",
+              padding: 0,
+              textAlign: "left",
+            }}
+            onClick={() => onSelectAgent(relation.agent_id)}
+          >
+            <span style={{ color: relation.kind === "stranger" ? colors.dim : colors.accent }}>
+              {relation.kind}
+            </span>{" "}
+            agent {relation.agent_id}
+            <span style={{ color: colors.dim }}>
+              {" "}
+              · pop {relation.population_id ?? "—"}
+              {relation.distance !== null ? ` · ${relation.distance}d` : ""}
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 

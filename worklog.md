@@ -2113,3 +2113,70 @@ regenerate, scoring beyond escape/no-escape.
 
 ### Commits
 - `9488a66` — S26: builder vs escapee — the arms race, adaptive rules, rounds with builder feedback [pushed]
+
+---
+
+## S27 — Population Manager (in progress)
+
+### Scope (2026-10-08)
+In: `app/simulation/population.py` — the population manager (spawn
+rules, spawning, top-up enforcement, population statistics,
+relationships), engine integration (optional manager, member cap on
+reproduction, population id in observations), `POPULATION_SPAWN`
+events, registry support for creating a world with several
+populations and adding one to a live world, API routes (list / create
+/ get populations, per-agent relationships), tests, console panel.
+Out: model minds driving group behaviour, territory and settlements
+(S30), persisted statistics across restarts, agent death (agents are
+immortal today — statistics count what exists).
+
+### Implementation
+- `app/simulation/population.py`: `SpawnRule` (name, founding size,
+  rotating policies, optional spawn zone, member cap, top-up, resource
+  stipend — data, so rules round-trip through JSON), `Population` (the
+  runtime record: rule, founding tick, arrival count), and the
+  `PopulationManager` — registration, founding and arrival spawning
+  through the engine's own spawn path, top-up enforcement, statistics
+  (size, generations, brains, pooled resources, births, arrivals, age),
+  and relationships. Statistics are computed, relationships derived —
+  neither is stored, so neither can disagree with the world.
+- Relationships are family first (parent/child/sibling from the
+  lineage), then following, then teammates, then population membership,
+  then strangers: two agents of different populations are strangers
+  to each other — that boundary is what makes groups groups.
+- Engine: an optional `populations` manager, a member cap on
+  `create_child` (a group at its limit cannot grow — a `BirthError`,
+  which the API already maps to 409), and the population (`id` + live
+  `size`) in every observation, so a mind can see itself as a member.
+- `POPULATION_SPAWN` timeline events for foundings and arrivals.
+  Registry: worlds are created from a list of spawn rules (the omitted
+  default is S09's single population — no existing test changed, the
+  suite passes unmodified), and `add_population` founds a group in a live world — with rows, a
+  `POPULATION_SPAWN` event, and the lineage recorder taught its members.
+- API: `GET` populations (statistics + totals), `POST` populations
+  (201, found a group live), `GET` one population's statistics,
+  `GET` per-agent relationships. Console: a populations panel (live
+  statistics + a found-population form), and a relationships block in
+  the agent inspector — every relation click-to-navigate.
+
+### Verification
+- Tests: pytest **408 passed** (38 new: two groups in one world with
+  their own minds; empty founding; duplicate registration rejected;
+  zones holding the founding group and refusing to fit or to leave the
+  world; top-up regrowth stopping at the cap; the cap as the rule's,
+  not the parent's; ungoverned engines unchanged; stipends; founding
+  events; rule validation + JSON round-trip; statistics, world totals,
+  births-as-statistics; kin, neighbor/stranger boundaries, teammates,
+  following ranking; positions and distances; observation group info;
+  and the API — several populations at creation, live founding, bad
+  rules as 400, unknown population/agent as 404, capped births as 409).
+- Live (dev API, world 90): **3 populations founded at creation (7
+  agents), a 4th founded live (201), 25 ticks, births with population
+  linkage, statistics and totals, neighbor/stranger boundaries** —
+  multiple artificial groups inhabiting one world, the roadmap's check.
+- Roadmap S27 checklist: run multiple populations simultaneously ✅.
+  End goal: multiple artificial groups can inhabit one world ✅.
+
+### Commits
+- (pending — not yet committed at time of writing)
+

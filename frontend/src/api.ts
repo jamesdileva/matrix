@@ -125,6 +125,57 @@ export type Lineage = {
   chain: LineageMember[];
 };
 
+export type PopulationStats = {
+  population_id: number;
+  name: string;
+  size: number;
+  max_members: number | null;
+  top_up: boolean;
+  generation: { min: number; max: number; average: number };
+  brains: { model: number; scripted: number };
+  resources: Record<string, number>;
+  births: number;
+  arrivals: number;
+  founded_tick: number;
+  age_ticks: number;
+  rule: {
+    name: string;
+    members: number;
+    policies: string[];
+    spawn_zone: number[] | null;
+    max_members: number | null;
+    top_up: boolean;
+    stipend: Record<string, number>;
+  };
+};
+
+export type Populations = {
+  world_id: number;
+  populations: PopulationStats[];
+  totals: {
+    populations: number;
+    agents: number;
+    births: number;
+    arrivals: number;
+    resources: Record<string, number>;
+  };
+};
+
+export type Relationship = {
+  agent_id: number;
+  kind: string;
+  population_id: number | null;
+  generation: number;
+  position: { x: number; y: number } | null;
+  distance: number | null;
+};
+
+export type Relationships = {
+  world_id: number;
+  agent_id: number;
+  relationships: Relationship[];
+};
+
 export type Participant = {
   world_id: number;
   participant: { entity_id: number; position: { x: number; y: number } } | null;
@@ -165,6 +216,22 @@ export const api = {
     request<AgentDetail>(`/api/worlds/${id}/agents/${agentId}`),
   agentLineage: (id: number, agentId: number) =>
     request<Lineage>(`/api/worlds/${id}/agents/${agentId}/lineage`),
+  populations: (id: number) => request<Populations>(`/api/worlds/${id}/populations`),
+  addPopulation: (id: number, rule: {
+    name: string;
+    members: number;
+    policies: string[];
+    spawn_zone?: number[] | null;
+    max_members?: number | null;
+    top_up?: boolean;
+    stipend?: Record<string, number>;
+  }) =>
+    post(`/api/worlds/${id}/populations`, rule) as unknown as Promise<{
+      world_id: number;
+      population: PopulationStats;
+    }>,
+  relationships: (id: number, agentId: number) =>
+    request<Relationships>(`/api/worlds/${id}/agents/${agentId}/relationships`),
   participant: (id: number) => request<Participant>(`/api/worlds/${id}/participant`),
   participantJoin: (id: number) =>
     post(`/api/worlds/${id}/participant/join`) as unknown as Promise<Participant & { joined: boolean }>,

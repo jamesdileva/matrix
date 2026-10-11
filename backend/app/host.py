@@ -30,6 +30,7 @@ from app.simulation.engine import Engine
 from app.simulation.events import EventTypes
 from app.simulation.model_policy import ModelPolicy
 from app.simulation.policies import ForagerPolicy, GathererPolicy, WanderPolicy
+from app.simulation.population import PopulationManager, SpawnRule
 from app.simulation.world import SPEECH_RADIUS, Position, World
 
 BRAINS_SCRIPTED = "scripted"
@@ -72,6 +73,10 @@ class WorldHost:
         self.brains = brains
         self.provider = provider
         self.paused = False
+        # S27: the lineage recorder for this world, kept here so a
+        # population founded later (the registry's add_population) can
+        # teach the recorder its members' global ids.
+        self.agent_recorder: AgentRecorder | None = None
         self._task: asyncio.Task | None = None
 
     @property
@@ -106,7 +111,13 @@ class WorldHost:
 
         Works for both world kinds — scripted engines take the pure
         synchronous path inside.
+
+        S27: spawn rules fire first. A population that tops up backfills
+        itself before the world advances, so a death (once deaths
+        exist) and a top-up look the same to the rule.
         """
+        if self.engine.populations is not None:
+            self.engine.populations.enforce_spawn_rules()
         if self.engine.has_model_policies:
             return await self.engine.step_async()
         return self.engine.step()
@@ -322,9 +333,12 @@ class WorldRegistry:
         tps: float = 6.0,
         autostart: bool = True,
         brains: str = BRAINS_SCRIPTED,
+        populations: list[dict] | None = None,
     ) -> WorldHost:
         if brains not in _BRAINS:
             raise ValueError(f"unknown brains {brains!r}; expected one of {_BRAINS}")
+        if populations is not None and not isinstance(populations, list):
+            raise ValueError("populations must be a list of spawn rules")
 
         with self._session_factory() as session:
             row = WorldModel(name=f"world-{seed}", seed=str(seed))
@@ -332,18 +346,40 @@ class WorldRegistry:
             session.commit()
             world_id = row.id
 
-            # S09: one population per world. The engine's population id
-            # IS the database row's id, so engine and DB agree on
-            # membership without a translation layer.
-            population = PopulationModel(name=f"population-{world_id}", world_id=world_id)
-            session.add(population)
+            # One population per rule (S27). S09's "one population per
+            # world" is now the default case: a single rule named after
+            # the world, holding every founding agent, whose minds rotate
+            # exactly as they always have.
+            rules: list[SpawnRule] = []
+            if populations is None:
+                rules.append(
+                    SpawnRule(
+                        name=f"population-{world_id}",
+                        members=agents,
+                        # A model world's founding members are model
+                        # minds (S08); scripted worlds rotate the three
+                        # scripted minds (S17).
+                        policies=("model",)
+                        if brains == BRAINS_MODEL
+                        else ("wander", "forage", "gather"),
+                    )
+                )
+            else:
+                for spec in populations:
+                    rules.append(spec if isinstance(spec, SpawnRule) else SpawnRule.from_dict(spec))
+            population_rows: list[PopulationModel] = []
+            for rule in rules:
+                population_row = PopulationModel(
+                    name=rule.name, world_id=world_id, population_rules=rule.to_dict()
+                )
+                session.add(population_row)
+                population_rows.append(population_row)
             session.commit()
-            population_id = population.id
+            population_ids = [p.id for p in population_rows]
 
         bus = EventBus()
         bus.subscribe(DatabaseEventRecorder(self._session_factory, world_id))
         world = World.generate(seed, width, height, event_bus=bus)
-        engine = Engine(world, population_id=population_id)
 
         provider: ModelProvider | None = None
         if brains == BRAINS_MODEL:
@@ -351,33 +387,39 @@ class WorldRegistry:
             # agent gets its own ModelPolicy, since a policy holds the
             # agent's in-flight decision (S08).
             provider = provider_from_settings(settings)
-        # Scripted minds rotate: a wanderer, a forager, a gatherer
-        # (S17 — the resource-driven one makes scarcity visible).
-        policies = [WanderPolicy(), ForagerPolicy(), GathererPolicy("wood")]
+
+        def agent_factory(name: str, index: int) -> Agent:
+            """A population member's body, by policy name (S27)."""
+            if name == "model":
+                if provider is None:
+                    raise ValueError("a model policy needs a model world (brains='model')")
+                return Agent(agent_id=-1, policy=ModelPolicy(provider), observation_radius=2)
+            if name == "wander":
+                return Agent(agent_id=-1, policy=WanderPolicy(), observation_radius=2)
+            if name == "forage":
+                return Agent(agent_id=-1, policy=ForagerPolicy(), observation_radius=2)
+            if name == "gather":
+                # The resource-driven mind starts at its resource: a
+                # blind local search on a sparse map finds nothing (S17).
+                return Agent(agent_id=-1, policy=GathererPolicy("wood"), observation_radius=4)
+            raise ValueError(f"unknown policy {name!r} for a spawned agent")
+
         gatherer_spot = _gatherer_spot(world)
-        spawned = 0
-        for y in range(1, world.height - 1):
-            for x in range(1, world.width - 1):
-                if spawned >= agents:
-                    break
-                pos = Position(x, y)
-                if world.is_floor(pos) and world.object_at(pos) is None:
-                    if provider is not None:
-                        policy = ModelPolicy(provider)
-                    else:
-                        policy = policies[spawned % len(policies)]
-                    radius = 4 if isinstance(policy, GathererPolicy) else 2
-                    if isinstance(policy, GathererPolicy) and gatherer_spot is not None:
-                        # The resource-driven mind starts at its resource:
-                        # a blind local search on a sparse map finds
-                        # nothing (S17).
-                        pos = gatherer_spot
-                        gatherer_spot = None
-                    engine.spawn_agent(
-                        Agent(agent_id=spawned + 1, policy=policy, observation_radius=radius),
-                        pos,
-                    )
-                    spawned += 1
+        spot_taken = False
+
+        def cell_hint(name: str, index: int) -> Position | None:
+            nonlocal spot_taken
+            if name == "gather" and gatherer_spot is not None and not spot_taken:
+                spot_taken = True
+                return gatherer_spot
+            return None
+
+        engine = Engine(world, population_id=population_ids[0] if population_ids else None)
+        manager = PopulationManager(engine, agent_factory=agent_factory, cell_hint=cell_hint)
+        engine.populations = manager
+        for population_id, rule in zip(population_ids, rules):
+            manager.register(population_id, rule)
+            manager.spawn_founding(population_id)
 
         # Founding agents get their rows now; births are persisted by
         # the AgentRecorder subscriber off the world's event bus.
@@ -387,7 +429,7 @@ class WorldRegistry:
                 record = AgentModel(
                     world_id=world_id,
                     local_id=agent.agent_id,
-                    population_id=population_id,
+                    population_id=agent.population_id,
                     generation=agent.generation,
                     birth_tick=0,
                     status="active",
@@ -399,22 +441,78 @@ class WorldRegistry:
                 session.add(record)
                 session.flush()
                 local_to_global[agent.agent_id] = record.id
-            population_row = session.get(PopulationModel, population_id)
-            population_row.root_agent_id = (
-                local_to_global[min(local_to_global)] if local_to_global else None
-            )
+            if population_ids:
+                population_row = session.get(PopulationModel, population_ids[0])
+                population_row.root_agent_id = (
+                    local_to_global[min(local_to_global)] if local_to_global else None
+                )
             session.commit()
 
         # Births only happen after the founding generation, so the
         # lineage recorder can subscribe last — it ignores every other
         # event type.
-        bus.subscribe(AgentRecorder(self._session_factory, world_id, population_id, local_to_global))
+        recorder = AgentRecorder(
+            self._session_factory,
+            world_id,
+            population_ids[0] if population_ids else None,
+            local_to_global,
+        )
+        bus.subscribe(recorder)
 
         host = WorldHost(world_id, engine, tps=tps, brains=brains, provider=provider)
+        host.agent_recorder = recorder
         self._hosts[world_id] = host
         if autostart:
             host.start()
         return host
+
+    def add_population(self, world_id: int, rule: dict | SpawnRule) -> dict:
+        """Found a new population in a live world (S27).
+
+        The world keeps running: the rule gets a database row, its
+        founding members appear under the engine's spawn path, and the
+        lineage recorder learns their global ids so future births link
+        up like everyone else's.
+        """
+        host = self._hosts.get(world_id)
+        if host is None:
+            raise ValueError(f"world {world_id} is not live")
+        rule = rule if isinstance(rule, SpawnRule) else SpawnRule.from_dict(rule)
+        manager = host.engine.populations
+        if manager is None:  # pragma: no cover - every created world has one
+            raise ValueError(f"world {world_id} has no population manager")
+
+        with self._session_factory() as session:
+            population_row = PopulationModel(
+                name=rule.name, world_id=world_id, population_rules=rule.to_dict()
+            )
+            session.add(population_row)
+            session.commit()
+            population_id = population_row.id
+
+        manager.register(population_id, rule)
+        members = manager.spawn_founding(population_id)
+        recorder = host.agent_recorder
+        with self._session_factory() as session:
+            for agent in members:
+                record = AgentModel(
+                    world_id=world_id,
+                    local_id=agent.agent_id,
+                    population_id=population_id,
+                    generation=agent.generation,
+                    birth_tick=host.engine.world.tick,
+                    status="active",
+                    location=agent.position.to_dict() if agent.position else None,
+                    inherited_traits={},
+                    inherited_knowledge=[],
+                    cultural_artifacts=[],
+                )
+                session.add(record)
+                session.flush()
+                if recorder is not None:
+                    recorder.remember(agent.agent_id, record.id)
+            session.commit()
+        return manager.statistics(population_id)
 
     def get(self, world_id: int) -> WorldHost | None:
         return self._hosts.get(world_id)
