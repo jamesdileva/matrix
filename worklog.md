@@ -2324,5 +2324,5 @@ technology as territory.
   descendant can use it ✅. Culture becomes cumulative ✅.
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `f675244` — S29: technology and cultural objects — recipes, patterns, tools, inventions, cumulative culture [pushed]
 
