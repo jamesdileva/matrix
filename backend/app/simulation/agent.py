@@ -175,6 +175,10 @@ class Agent:
             "traits": copy.deepcopy(self.traits),
             "knowledge": list(self.knowledge),
             "cultural_artifacts": list(self.cultural_artifacts),
+            # Shared observations (S25): where your teammates stand
+            # and what they are after — cooperation needs a shared
+            # picture, not telepathy.
+            "teammates": world.teammates_of(self.agent_id),
         }
 
     def decide(self) -> dict:

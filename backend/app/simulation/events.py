@@ -44,6 +44,8 @@ class EventTypes:
     FOLLOW = "FOLLOW"
     # S23: the escape. Leaving the sandbox is a fact too.
     ESCAPED = "ESCAPED"
+    # S25: cooperation. A door opened by joint occupancy is a fact too.
+    DOOR_OPENED = "DOOR_OPENED"
 
 
 @dataclass(frozen=True)

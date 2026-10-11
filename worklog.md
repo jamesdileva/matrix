@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S25 — Cooperative Escape
-- Completed sprints: S01–S24, S06B (S24 done 2026-10-08)
+- **Next sprint:** S26 — Builder vs Escapee
+- Completed sprints: S01–S25, S06B (S25 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -1994,3 +1994,65 @@ remembering failed attempts across runs.
 
 ### Commits
 - `85a6ba0` — S24: agent escape — objective without the script, escape metrics, no host-level escape, live model attempts [pushed]
+
+## S25 � Cooperative Escape (in progress)
+
+### Plan (2026-10-08)
+Escape now requires more than one body (roadmap S25). The door stone
+is too heavy to carry and sits over two pressure plates: the door
+opens only while both are occupied at once, which one agent can never
+do. The cooperating pair must split up, take a plate each, announce
+themselves, and only then walk out together. Shared observations show
+teammates' positions; every utterance is on the timeline. The
+verification is the pair the roadmap asks for: a single agent cannot
+complete the puzzle; two cooperating scripted agents can; the
+communication between them is logged.
+
+### Scope (2026-10-08)
+In: the cooperative prison (heavy stone, two pressure plates, the
+joint occupancy rule), teammates in observations, the
+`PlateSolverPolicy` pair, the single-agent control, escape and
+communication metrics, tests, CLI.
+Out: negotiated protocol between model minds (they would have to work
+out the plate agreement by talking — a later sprint), more than two
+plates, doors that re-close.
+
+### Implementation
+- The puzzle: the door stone is now `heavy` — pick_up rejects it
+  (`too_heavy`) — and it sits over two pressure plates. The door
+  opens only while both plates are occupied by entities at the same
+  time (checked after each tick), removing the stone and recording
+  DOOR_OPENED. One body can hold one plate, so one body can never
+  open it; the single-agent run is the control that proves it.
+- `PlateSolverPolicy`: one half of the pair — walk to my plate,
+  announce out loud, hold. The door is *visible* state, not a flag:
+  when the doorway within the observation square holds no stone, walk
+  out through it. The plan (which plate is mine) is scenario
+  knowledge, not discovery — these are instruments, not minds.
+- Shared observations: `world.teammates_of` lists same-team entities'
+  positions in every observation (teams are a world concept,
+  populations stay a database concept).
+- Both agents walk out; the run records door-open tick, team escape
+  tick, and every utterance on the timeline.
+
+### Verification
+- Tests: pytest **358 passed** (9 new: the stone is heavy and
+  unpickable; a solo agent cannot complete the puzzle (no DOOR_OPENED
+  ever); the pair escapes together with both halves in the sandbox;
+  the door requires joint occupancy (one DOOR_OPENED naming both
+  plates); the communication is logged with both messages; teammates
+  appear in observations; determinism; model/provider validation).
+- Live (dev DB): the scripted pair **ESCAPED at tick 15** (door at
+  10), with exactly the two plate announcements logged; the single
+  agent stood on its plate forever, announcing once, never escaping.
+- Live model attempt (qwen2.5:7b-instruct pair, 30 ticks): the two
+  model agents talked — 52 logged messages, mostly "let's move south
+  together to stand on the pressure plates" — but coordinated badly
+  and did not escape. Honest baseline: model minds can converse about
+  the plan before they can execute it.
+- Roadmap S25 checklist: a single agent cannot complete the puzzle
+  ✅; multiple cooperating scripted agents can ✅; communication is
+  logged ✅.
+
+### Commits
+- (pending — not yet committed at time of writing)

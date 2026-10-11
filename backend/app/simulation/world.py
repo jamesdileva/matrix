@@ -199,6 +199,9 @@ class World:
         self._speeches: list[tuple[int, Position, str, int]] = []
         # Follow directives (S22): follower -> target entity id.
         self._following: dict[int, int] = {}
+        # Teams (S25): team id -> member entity ids. Shared
+        # observations list teammates by team, not by population.
+        self._teams: dict[int, set[int]] = {}
         self._events: list[Event] = list(events or [])
         self._next_event_id = (
             next_event_id
@@ -532,6 +535,23 @@ class World:
             self._following.pop(follower_id, None)
             return None
         return target
+
+    def add_to_team(self, entity_id: int, team_id: int) -> None:
+        """Put an entity on a team (S25)."""
+        if entity_id not in self._entities:
+            raise ValueError(f"unknown entity {entity_id!r}")
+        self._teams.setdefault(team_id, set()).add(entity_id)
+
+    def teammates_of(self, entity_id: int) -> list[dict]:
+        """The entity's teammates (same team), as id + position."""
+        for members in self._teams.values():
+            if entity_id in members:
+                return [
+                    {"id": member, "position": self._entities[member].to_dict()}
+                    for member in sorted(members)
+                    if member != entity_id and member in self._entities
+                ]
+        return []
 
     def step_toward(self, follower_id: int, target_id: int) -> "ActionResult":
         """One validated step from the follower toward the target."""

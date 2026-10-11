@@ -546,6 +546,8 @@ def _pick_up(world: World, actor_id, action: dict) -> dict:
         raise _Rejected("unknown_object", {"object_id": object_id})
     if obj.position is None:
         raise _Rejected("carried_elsewhere", {"object_id": obj.id})
+    if obj.properties.get("heavy"):
+        raise _Rejected("too_heavy", {"object_id": obj.id})
     if not _within_reach(position, obj.position):
         raise _Rejected("out_of_reach", {"object_position": obj.position.to_dict()})
 

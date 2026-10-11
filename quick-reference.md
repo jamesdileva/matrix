@@ -263,6 +263,21 @@ rejected (failed attempts) and cells explored. No host-level escape is
 possible — only the simulated transition into the sandbox fires
 ESCAPED.
 
+## Cooperative escape (S25+)
+
+```bash
+cd backend
+.venv/Scripts/python -m app.experiments.coop_escape --agents 2    # the cooperating pair
+.venv/Scripts/python -m app.experiments.coop_escape --agents 1    # solo: cannot escape
+.venv/Scripts/python -m app.experiments.coop_escape --solver model --agents 2
+```
+
+The door stone is too heavy to carry and sits over two pressure
+plates; the door opens only while both plates are held. One agent can
+never escape alone. Teammates' positions ride in every observation
+(shared observations), and the pair's utterances are logged on the
+timeline.
+
 ## Lineage experiment (S11+)
 
 ```bash
