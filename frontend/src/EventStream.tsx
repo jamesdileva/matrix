@@ -18,6 +18,12 @@ const EVENT_COLORS: Record<string, string> = {
   MODEL_ERROR: colors.error,
   AGENT_MESSAGE: colors.message,
   AGENT_BORN: colors.lineage,
+  // S28: the network's letters ride the same timeline in the same
+  // voice as spoken words.
+  SPEECH: colors.message,
+  DIRECT: colors.message,
+  ANNOUNCE: colors.message,
+  BROADCAST: colors.message,
 };
 
 function summarize(event: WorldEvent): string {
@@ -36,6 +42,14 @@ function summarize(event: WorldEvent): string {
   }
   if (type === "MODEL_ERROR") return `no decision: ${String(payload.reason ?? "?").slice(0, 60)}`;
   if (type === "AGENT_MESSAGE") return `"${String(payload.message ?? "").slice(0, 60)}"`;
+  // S28: letters, announcements and broadcasts read like speech, with
+  // their address attached.
+  if (type === "SPEECH") return `"${String(payload.message ?? "").slice(0, 60)}"`;
+  if (type === "DIRECT")
+    return `to ${String(event.target_id ?? "?")}: "${String(payload.message ?? "").slice(0, 60)}"`;
+  if (type === "ANNOUNCE")
+    return `to ${String(payload.scope ?? "?")}: "${String(payload.message ?? "").slice(0, 60)}"`;
+  if (type === "BROADCAST") return `to all: "${String(payload.message ?? "").slice(0, 60)}"`;
   if (type === "AGENT_BORN") {
     return `gen ${String(payload.generation)} child of ${String(payload.parent_id)}`;
   }

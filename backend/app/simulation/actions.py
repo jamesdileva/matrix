@@ -70,6 +70,9 @@ HANDLERS = {
     "build": "_build",
     "remove": "_remove",
     "say": "_say",
+    "tell": "_tell",
+    "announce": "_announce",
+    "broadcast": "_broadcast",
     "give": "_give",
     "take": "_take",
     "trade": "_trade",
@@ -266,6 +269,69 @@ def _say(world: World, actor_id, action: dict) -> dict:
     message = message.strip()
     world.say(actor_id, message)
     return {"message": message}
+
+
+# ----------------------------------------------------------------------
+# Communication networks (S28)
+# ----------------------------------------------------------------------
+
+
+def _spoken_message(action: dict) -> str:
+    message = action.get("message")
+    if not isinstance(message, str) or not message.strip():
+        raise _Rejected("empty_message", {})
+    return message.strip()
+
+
+def _tell(world: World, actor_id, action: dict) -> dict:
+    """A named letter to one entity, wherever it stands (S28).
+
+    Distance does not matter — only that the recipient is in the
+    world, and is not the sender writing to themselves.
+    """
+    _require_actor(world, actor_id)
+    target_id = action.get("target")
+    if not isinstance(target_id, int) or isinstance(target_id, bool):
+        raise _Rejected("invalid_target", {"target": target_id})
+    if target_id == actor_id:
+        raise _Rejected("cannot_target_self", {})
+    if world.entity_position(target_id) is None:
+        raise _Rejected("unknown_target", {"target": target_id})
+    message = _spoken_message(action)
+    world.tell(actor_id, target_id, message)
+    return {"message": message, "target": target_id}
+
+
+def _announce(world: World, actor_id, action: dict) -> dict:
+    """One message to the actor's whole group (S28).
+
+    ``scope`` is ``team`` (the S25 covenant) or ``population`` (the
+    S27 boundary). Announcing to a group you do not belong to is a
+    rejection, not silence.
+    """
+    _require_actor(world, actor_id)
+    scope = action.get("scope")
+    if scope not in ("team", "population"):
+        raise _Rejected("unknown_scope", {"scope": scope})
+    if scope == "team" and world.team_of(actor_id) is None:
+        raise _Rejected("not_on_a_team", {})
+    if scope == "population" and world.population_of(actor_id) is None:
+        raise _Rejected("no_population", {})
+    message = _spoken_message(action)
+    event = world.announce(actor_id, scope, message)
+    return {
+        "message": message,
+        "scope": scope,
+        "recipients": event.payload["recipients"],
+    }
+
+
+def _broadcast(world: World, actor_id, action: dict) -> dict:
+    """One message to every entity in the world (S28)."""
+    _require_actor(world, actor_id)
+    message = _spoken_message(action)
+    event = world.broadcast(actor_id, message)
+    return {"message": message, "recipients": event.payload["recipients"]}
 
 
 # ----------------------------------------------------------------------

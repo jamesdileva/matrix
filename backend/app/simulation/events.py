@@ -46,6 +46,11 @@ class EventTypes:
     ESCAPED = "ESCAPED"
     # S25: cooperation. A door opened by joint occupancy is a fact too.
     DOOR_OPENED = "DOOR_OPENED"
+    # S28: networks. A named letter, a group announcement and a
+    # broadcast are facts too — each with its own delivery set.
+    DIRECT = "DIRECT"
+    ANNOUNCE = "ANNOUNCE"
+    BROADCAST = "BROADCAST"
     # S27: populations. A group coming to be — founded, or a new
     # member arriving under its spawn rule — is a fact too.
     POPULATION_SPAWN = "POPULATION_SPAWN"

@@ -315,6 +315,31 @@ resource stipend. Statistics are computed, relationships derived
 (kin → following → teammates → population → strangers) — an agent
 sees its own population's id and live size in every observation.
 
+## Communication networks (S28+)
+
+```bash
+cd backend
+.venv/Scripts/python -m app.experiments.rumor --agents 6    # direct chain vs group announcement
+```
+
+```bash
+# a named letter across the map (distance does not matter)
+curl -s -X POST localhost:8000/api/worlds/1/actions -H "Content-Type: application/json" \
+  -d '{"agent_id": 1, "action": {"action": "tell", "target": 4, "message": "come to town"}}'
+# one message to the speaker's team or population
+curl -s -X POST localhost:8000/api/worlds/1/actions -H "Content-Type: application/json" \
+  -d '{"agent_id": 1, "action": {"action": "announce", "scope": "population", "message": "meeting at dusk"}}'
+# one message to every entity in the world
+curl -s -X POST localhost:8000/api/worlds/1/actions -H "Content-Type: application/json" \
+  -d '{"agent_id": 1, "action": {"action": "broadcast", "message": "hear ye"}}'
+```
+
+Local `say` still travels by earshot; `tell` reaches one named
+recipient anywhere, `announce` reaches the speaker's team or
+population, `broadcast` reaches everyone but the speaker. Every
+observed message carries its `kind`; the timeline records DIRECT,
+ANNOUNCE and BROADCAST with their recipients.
+
 ## Lineage experiment (S11+)
 
 ```bash

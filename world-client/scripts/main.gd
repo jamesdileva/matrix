@@ -259,6 +259,12 @@ func _format_event(e: Dictionary) -> String:
 		detail = "\"" + str(payload.get("message", "")).substr(0, 60) + "\""
 	elif kind == "AGENT_MESSAGE" and payload.has("message"):
 		detail = "\"" + str(payload.get("message", "")).substr(0, 60) + "\""
+	elif kind == "DIRECT" and payload.has("message"):
+		detail = "to %s: \"%s\"" % [str(e.get("target_id", "?")), str(payload.get("message", "")).substr(0, 60)]
+	elif kind == "ANNOUNCE" and payload.has("message"):
+		detail = "to %s: \"%s\"" % [str(payload.get("scope", "?")), str(payload.get("message", "")).substr(0, 60)]
+	elif kind == "BROADCAST" and payload.has("message"):
+		detail = "to all: \"" + str(payload.get("message", "")).substr(0, 60) + "\""
 	var actor = e.get("actor_id")
 	var who := "world" if actor == null else "agent %d" % int(actor)
 	return "[%s] %s: %s" % [who, kind.to_lower(), detail]

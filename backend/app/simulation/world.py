@@ -197,6 +197,14 @@ class World:
         self._structure_of: dict[int, int] = {}  # object id -> structure id
         # Rolling speech buffer (S21): (speaker, position, message, tick).
         self._speeches: list[tuple[int, Position, str, int]] = []
+        # Routed letters (S28): named, group and global messages, as
+        # dicts — {sender, kind, address, message, tick, recipients}.
+        # The recipients are frozen at send time; leaving the world
+        # later does not un-deliver. Bounded like the speech buffer.
+        self._letters: list[dict] = []
+        # Population membership (S28): entity -> population id. The
+        # engine writes it at spawn; the manager reads it to route.
+        self._entity_populations: dict[int, int] = {}
         # Follow directives (S22): follower -> target entity id.
         self._following: dict[int, int] = {}
         # Teams (S25): team id -> member entity ids. Shared
@@ -416,6 +424,7 @@ class World:
         position = self._entities.pop(actor_id)
         del self._entity_cells[position]
         self._inventory.pop(actor_id, None)
+        self._entity_populations.pop(actor_id, None)
         self._add_event(
             EventTypes.ENTITY_REMOVED,
             actor_id=actor_id,
@@ -474,7 +483,13 @@ class World:
         return event
 
     def messages_for(self, actor_id: int) -> list[dict]:
-        """What `actor_id` can hear: recent speech within the radius."""
+        """What `actor_id` can hear: recent speech within the radius,
+        plus every routed letter addressed to them (S28).
+
+        Local entries carry a distance; routed ones carry their kind
+        and address instead — a mind can tell a whisper from a
+        broadcast by looking.
+        """
         position = self._entities.get(actor_id)
         if position is None:
             return []
@@ -484,10 +499,140 @@ class World:
                 continue  # you do not hear yourself
             if abs(position.x - spoke_at.x) + abs(position.y - spoke_at.y) <= SPEECH_RADIUS:
                 heard.append(
-                    {"from": speaker, "message": message, "tick": tick,
+                    {"from": speaker, "message": message, "tick": tick, "kind": "say",
                      "distance": abs(position.x - spoke_at.x) + abs(position.y - spoke_at.y)}
                 )
+        for letter in self._letters:
+            if letter["sender"] == actor_id or actor_id not in letter["recipients"]:
+                continue
+            entry = {
+                "from": letter["sender"],
+                "message": letter["message"],
+                "tick": letter["tick"],
+                "kind": letter["kind"],
+                "distance": None,
+            }
+            if letter["kind"] == "tell":
+                entry["to"] = letter["address"]
+            elif letter["kind"] == "announce":
+                entry["scope"] = letter["address"]
+            heard.append(entry)
         return heard
+
+    # ------------------------------------------------------------------
+    # Communication networks (S28)
+    # ------------------------------------------------------------------
+
+    def team_of(self, entity_id: int) -> int | None:
+        """The team an entity stands on, if any."""
+        for team_id, members in self._teams.items():
+            if entity_id in members:
+                return team_id
+        return None
+
+    def set_population(self, entity_id: int, population_id: int | None) -> None:
+        """Record an entity's population (the engine writes it at spawn)."""
+        if population_id is None:
+            self._entity_populations.pop(entity_id, None)
+        else:
+            self._entity_populations[entity_id] = population_id
+
+    def population_of(self, entity_id: int) -> int | None:
+        """The population an entity belongs to, if any."""
+        return self._entity_populations.get(entity_id)
+
+    def route_message(self, sender_id: int, kind: str, address) -> list[int]:
+        """Who receives a message: the routing, as a decision.
+
+        - ``tell`` to a target: that one entity, wherever it stands.
+        - ``announce`` to ``team``/``population``: the sender's group.
+        - ``broadcast``: every entity in the world.
+        The sender never receives their own message. Recipients must
+        be in the world; membership is read now, delivery frozen.
+        """
+        if sender_id not in self._entities:
+            raise ValueError(f"unknown sender {sender_id!r}")
+        if kind == "tell":
+            if address not in self._entities:
+                raise ValueError(f"unknown recipient {address!r}")
+            recipients = [address]
+        elif kind == "announce" and address == "team":
+            team_id = self.team_of(sender_id)
+            if team_id is None:
+                raise ValueError(f"entity {sender_id} stands on no team")
+            recipients = sorted(self._teams[team_id])
+        elif kind == "announce" and address == "population":
+            population_id = self.population_of(sender_id)
+            if population_id is None:
+                raise ValueError(f"entity {sender_id} belongs to no population")
+            recipients = sorted(
+                entity_id
+                for entity_id, member_of in self._entity_populations.items()
+                if member_of == population_id and entity_id in self._entities
+            )
+        elif kind == "broadcast":
+            recipients = sorted(self._entities)
+        else:
+            raise ValueError(f"cannot route kind={kind!r} address={address!r}")
+        return [entity_id for entity_id in recipients if entity_id != sender_id]
+
+    def _buffer_letter(self, sender_id: int, kind: str, address, message: str) -> list[int]:
+        recipients = self.route_message(sender_id, kind, address)
+        self._letters.append(
+            {
+                "sender": sender_id,
+                "kind": kind,
+                "address": address,
+                "message": message,
+                "tick": self.tick,
+                "recipients": recipients,
+            }
+        )
+        if len(self._letters) > SPEECH_BUFFER:
+            del self._letters[: len(self._letters) - SPEECH_BUFFER]
+        return recipients
+
+    def tell(self, sender_id: int, target_id: int, message: str) -> Event:
+        """A named letter: one recipient, whatever the distance.
+
+        The hallway conversation made reliable — a `tell` is delivered
+        into the recipient's inbox even across the map, and recorded as
+        a DIRECT event naming both parties.
+        """
+        recipients = self._buffer_letter(sender_id, "tell", target_id, message)
+        return self._add_event(
+            EventTypes.DIRECT,
+            actor_id=sender_id,
+            target_id=target_id,
+            payload={"message": message, "recipients": recipients},
+        )
+
+    def announce(self, sender_id: int, scope: str, message: str) -> Event:
+        """One message to the sender's whole group: team or population.
+
+        The crier's solution to the chain's problem — instead of
+        telling members one by one, the group hears it at once. The
+        ANNOUNCE event names the scope and the recipients.
+        """
+        recipients = self._buffer_letter(sender_id, "announce", scope, message)
+        return self._add_event(
+            EventTypes.ANNOUNCE,
+            actor_id=sender_id,
+            payload={"message": message, "scope": scope, "recipients": recipients},
+        )
+
+    def broadcast(self, sender_id: int, message: str) -> Event:
+        """One message to every entity in the world.
+
+        Distance stops mattering entirely — the town square's loudest
+        voice. Recorded as a BROADCAST event naming the recipients.
+        """
+        recipients = self._buffer_letter(sender_id, "broadcast", "all", message)
+        return self._add_event(
+            EventTypes.BROADCAST,
+            actor_id=sender_id,
+            payload={"message": message, "recipients": recipients},
+        )
 
     # ------------------------------------------------------------------
     # Social interaction (S22)

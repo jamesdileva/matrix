@@ -48,6 +48,10 @@ class Engine:
         agent.spawn(self.world, position)
         if agent.population_id is None:
             agent.population_id = self.population_id
+        if agent.population_id is not None:
+            # Group membership the world itself can read (S28): group
+            # announcements route on it, and it leaves with the entity.
+            self.world.set_population(agent.agent_id, agent.population_id)
         if self.populations is not None:
             # Group awareness (S27): an agent that can see its own
             # population's size can weigh being one of many against

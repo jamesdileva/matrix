@@ -2179,4 +2179,69 @@ immortal today — statistics count what exists).
 
 ### Commits
 - `a5a139c` — S27: population manager — spawn rules, multi-group worlds, statistics, relationships [pushed]
+- `31e1db2` — worklog: record S27 commit hash [pushed]
+
+---
+
+## S28 — Communication Networks (in progress)
+
+### Scope (2026-10-09)
+In: message routing (`route_message` — local, direct, group, global
+delivery sets), the `tell` (one named recipient, any distance),
+`announce` (my team / my population), and `broadcast` (everyone)
+actions with `DIRECT`/`ANNOUNCE`/`BROADCAST` timeline events; `kind`
+on every observed message; the rumor experiment comparing direct
+chains against group announcements (ticks-to-inform-all, messages
+sent); tests; console event labels.
+Out: changing the 1:1 chat route (the participant reaches the new
+actions through the existing injection route), model minds running
+the rumor (scripted comparison, like S26's calibrations), relay
+chains through intermediaries, conversation memory.
+
+### Implementation
+- `world.py`: `route_message` — the routing as one decision (tell to
+  a target anywhere, announce to the sender's team or population,
+  broadcast to every entity; the sender never hears themselves).
+  `tell`/`announce`/`broadcast` freeze the recipient set at send time
+  into a bounded letter buffer; `messages_for` merges local speech
+  with addressed letters. Population membership lives on the world
+  (written by the engine at spawn, leaving with the entity), so group
+  routing never reaches past the S27 boundary. Every observed message
+  carries its `kind` — a mind can tell a whisper from a broadcast.
+- `actions.py`: the three actions with the house rejection style
+  (`cannot_target_self`, `unknown_target`, `unknown_scope`,
+  `not_on_a_team`, `no_population`, `empty_message`); nothing
+  half-applies (routing raises before any event records).
+- `app/experiments/rumor.py`: one knower, two conditions. DIRECT is
+  a chain of named letters (each link relays a beat after learning —
+  without the beat the chain would cascade inside one tick and the
+  comparison would be vacuous); GROUP is one population announcement.
+  Same world shape, same tick loop, same measures.
+- Console + Godot client: the three new timeline types read like
+  speech with their address attached.
+
+### Verification
+- Tests: pytest **436 passed** (28 new: cross-map letters, letter
+  privacy, DIRECT events, all tell rejections; team and population
+  announcements with membership boundaries, ANNOUNCE payloads, all
+  announce rejections; broadcast to everyone-but-self; `kind` on
+  local speech; the bounded letter buffer; routing raising before
+  recording; leaving dropping membership; the chain's relay beat, the
+  last link listening, the crier announcing once; the chain informing
+  N in N-1 ticks with N-1 messages; one announcement informing all in
+  1 tick with 1 message; the verdict; determinism; bad conditions and
+  lonely rumors rejected; the completed experiment row; and the API —
+  tell and participant broadcast through the injection route with
+  DIRECT/BROADCAST on the timeline, rejections riding the route).
+- Live (dev DB): a 6-agent comparison — **direct 5 ticks / 5
+  messages, group 1 tick / 1 message**.
+- Live (dev API, world 93): tell 1→4 across populations, announce
+  reaching only 2+3, broadcast from 4 reaching 1+2+3, self-tell
+  rejected — DIRECT, ANNOUNCE and BROADCAST all on the timeline.
+- Roadmap S28 checklist: direct against group compared ✅ (ticks and
+  messages, both live and in tests). Information travels through
+  populations ✅.
+
+### Commits
+- (pending — not yet committed at time of writing)
 
