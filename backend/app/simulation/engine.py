@@ -146,7 +146,14 @@ class Engine:
         # neither the parent's intent nor this event's payload can
         # alias the child's future edits.
         child.traits = copy.deepcopy(package.traits)
-        child.knowledge = list(package.knowledge)
+        # Cumulative culture (S29): the parent's discoveries join the
+        # package's knowledge. Technology learned in the world outlives
+        # the agent that learned it — this is the join that makes
+        # culture cumulative rather than merely printable.
+        inherited_knowledge = list(package.knowledge)
+        discovered = self.world.technology_of(parent.agent_id)
+        inherited_knowledge += [item for item in discovered if item not in inherited_knowledge]
+        child.knowledge = inherited_knowledge
         child.cultural_artifacts = list(package.cultural_artifacts)
         child.inheritance_received = package.as_dict()
         # The parent's goal starts the child's, and the parent's
@@ -160,6 +167,9 @@ class Engine:
             goal=child.goal,
         )
         self.spawn_agent(child, child_position)
+        # The inherited technology is usable from birth: the world
+        # knows the child holds these recipes and patterns now (S29).
+        self.world.grant_knowledge(child.agent_id, child.knowledge)
 
         self.world._add_event(
             EventTypes.AGENT_BORN,

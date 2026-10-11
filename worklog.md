@@ -2244,4 +2244,85 @@ chains through intermediaries, conversation memory.
 
 ### Commits
 - `37b592d` — S28: communication networks — tell/announce/broadcast routing, rumor experiment [pushed]
+- `cfcad5c` — worklog: record S28 commit hash [pushed]
+
+---
+
+## S29 — Technology & Cultural Objects (in progress)
+
+### Scope (2026-10-09)
+In: `app/simulation/technology.py` — recipes and construction
+patterns as data (in place of the block-cost constants), an
+invention table (combining two known items makes a new one), the
+world's technology registries and per-entity knowledge; the
+`discover` / `craft` / `invent` actions with `INVENTION`/`CRAFT`
+timeline events; the first tool effect (an axe doubles a gather);
+knowledge parsed from inheritance at birth (culture is cumulative
+through the engine, not the experiment); the cumulative-culture
+experiment — a parent discovers a recipe and invents a pattern, and
+its descendant builds with them without rediscovering; tests; model
+prompt, agent detail/technology routes, console + client labels.
+Out: model minds running the invention (the runner is provider-ready,
+the calibration is scripted), decay/obsolescence of technology,
+tools that wear out, artifact effects beyond the gather tool,
+technology as territory.
+
+### Implementation
+- `app/simulation/technology.py`: `Recipe` (name, inputs, produces)
+  and `Pattern` (blocks at offsets) as data — the S18 block costs are
+  now derived from the recipe data, so there is one source. A
+  deterministic invention table: two known items make one new thing
+  (the axe recipe and the wall recipe combine into the shelter-ring
+  pattern; the door and the wall into the gate recipe).
+- `World`: the technology registries (every recipe and pattern the
+  world has ever known, seeded with the public ones) and per-entity
+  *known* sets — what `craft` and the observations read.
+  `grant_knowledge` parses the ``recipe:``/``pattern:`` prefixes out
+  of inherited knowledge, so the join that makes culture cumulative
+  lives in the engine: `create_child` merges the parent's discovered
+  technology into the child's inheritance, and the child can use it
+  from birth.
+- `actions.py`: `discover` (experiment with what you carry; the first
+  affordable unknown recipe is learned), `craft` (spend the inputs,
+  the thing comes to be carried via `carve_object`), `invent` (two
+  known items, the table decides, repeats refused). `INVENTION` and
+  `CRAFT` events; rejections record like every other violation.
+  The first tool effect is real: carrying an axe doubles a gather.
+- `Agent.observe` gained `technology` (known recipes and patterns) and
+  `carried` (the objects in hand, with types) — a mind cannot use its
+  culture without seeing it. The default system prompt names the new
+  actions.
+- `app/experiments/technology.py`: the cumulative-culture scenario —
+  the parent discovers three recipes, crafts the axe, invents the
+  pattern, and gathers twice as deep; the child crafts the inherited
+  recipe, gathers with its own axe, and builds the inherited ring,
+  with **zero** rediscovery.
+
+### Verification
+- Tests: pytest **472 passed** (36 new: recipe/pattern data and the
+  block-cost derivation; deterministic symmetric invention; discovery
+  needing materials; crafting exactly; the axe doubling a gather with
+  conservation; a dropped tool no longer helping; invention
+  rejections; the observation's culture and carried objects; a child
+  inheriting discoveries it never declared; an inherited recipe
+  usable without rediscovery; nonsense knowledge never breaking a
+  birth; the pattern script laying every block without self-blocking;
+  the full roadmap verification; determinism; unknown modes; the
+  completed experiment row; and the API — technology in the detail,
+  discoveries/crafts/inventions through the injection route, the
+  world's technology route, rejections riding the route).
+- Live (dev DB): **parent 3 discoveries / 1 craft / 1 invention /
+  gathered 2; child 0 discoveries / 1 craft / 12 blocks / 1 structure
+  / gathered 2** — the descendant used every inherited thing.
+- Live (dev API, world 94): 3 discoveries (door, wood_axe,
+  wood_block), craft axe, invent `pattern:shelter_ring`, the detail
+  route listing recipes and the carried axe, the technology route
+  listing 4 recipes and 1 pattern — and a birth whose child
+  inherited **all three recipes and the pattern** through the public
+  API.
+- Roadmap S29 checklist: an agent discovers an object/recipe and a
+  descendant can use it ✅. Culture becomes cumulative ✅.
+
+### Commits
+- (pending — not yet committed at time of writing)
 

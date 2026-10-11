@@ -22,6 +22,13 @@ from typing import TYPE_CHECKING
 from app.simulation.bus import EventBus
 from app.simulation.errors import CellOccupiedError, InvalidPositionError
 from app.simulation.events import Event, EventTypes
+from app.simulation.technology import (
+    BASE_RECIPES,
+    TOOLS,
+    Pattern,
+    Recipe,
+    knowledge_item,
+)
 
 if TYPE_CHECKING:
     from app.simulation.actions import ActionResult
@@ -35,10 +42,12 @@ RESOURCE_OF_OBJECT = {"tree": "wood", "stone": "stone", "food": "food"}
 WATER_RESOURCE = "water"
 
 # Building recipes (S18): block type -> material cost from the ledger.
+# Now derived from the world's public recipe knowledge (S29) — the
+# data in `technology` is the source; this is the builders' view of it.
 BLOCK_RECIPES = {
-    "wood_block": {"wood": 1},
-    "stone_block": {"stone": 1},
-    "door": {"wood": 1},
+    name: dict(recipe.inputs)
+    for name, recipe in BASE_RECIPES.items()
+    if name in ("wood_block", "stone_block", "door")
 }
 # How far a voice carries (S21): Manhattan cells, local speech.
 SPEECH_RADIUS = 6
@@ -207,6 +216,15 @@ class World:
         self._entity_populations: dict[int, int] = {}
         # Follow directives (S22): follower -> target entity id.
         self._following: dict[int, int] = {}
+        # Technology (S29): the recipes and patterns the world has
+        # ever known (seeded with the public ones), and per-entity
+        # *known* sets — what an agent can craft or build. Discoveries
+        # and inventions add to both; inheritance grants a child its
+        # parent's known technology.
+        self._recipes: dict[str, Recipe] = dict(BASE_RECIPES)
+        self._patterns: dict[str, Pattern] = {}
+        self._known_recipes: dict[int, set[str]] = {}
+        self._known_patterns: dict[int, set[str]] = {}
         # Teams (S25): team id -> member entity ids. Shared
         # observations list teammates by team, not by population.
         self._teams: dict[int, set[int]] = {}
@@ -633,6 +651,139 @@ class World:
             actor_id=sender_id,
             payload={"message": message, "recipients": recipients},
         )
+
+    # ------------------------------------------------------------------
+    # Technology (S29)
+    # ------------------------------------------------------------------
+
+    # --- registries: what the world knows ---
+
+    @property
+    def recipes(self) -> dict[str, Recipe]:
+        """Every recipe the world has ever known (a copy)."""
+        return dict(self._recipes)
+
+    @property
+    def patterns(self) -> dict[str, Pattern]:
+        """Every construction pattern the world has ever known (a copy)."""
+        return dict(self._patterns)
+
+    def add_recipe(self, recipe: Recipe) -> None:
+        """Teach the world a recipe (an invention, once)."""
+        self._recipes[recipe.name] = recipe
+
+    def add_pattern(self, pattern: Pattern) -> None:
+        """Teach the world a construction pattern."""
+        self._patterns[pattern.name] = pattern
+
+    # --- per-entity knowledge: what an agent can do ---
+
+    def known_recipes(self, actor_id: int) -> list[str]:
+        return sorted(self._known_recipes.get(actor_id, ()))
+
+    def known_patterns(self, actor_id: int) -> list[str]:
+        return sorted(self._known_patterns.get(actor_id, ()))
+
+    def technology_of(self, actor_id: int) -> list[str]:
+        """The agent's technology knowledge, as knowledge strings."""
+        return [knowledge_item(self._recipes[name]) for name in self.known_recipes(actor_id)] + [
+            knowledge_item(self._patterns[name]) for name in self.known_patterns(actor_id)
+        ]
+
+    def grant_knowledge(self, actor_id: int, knowledge: list) -> list[str]:
+        """Grant knowledge to an entity; returns the technology granted.
+
+        Plain facts (S10's knowledge) pass through untouched — they
+        travel with the agent's own list. ``recipe:``/``pattern:``
+        strings are parsed into the entity's known sets, so an inherited
+        recipe is usable the moment its carrier exists. Strings naming
+        technology the world does not know are simply not usable: a
+        birth must never fail over a typo.
+        """
+        granted: list[str] = []
+        for item in knowledge or []:
+            if not isinstance(item, str):
+                continue
+            if item.startswith("recipe:"):
+                name = item[len("recipe:"):]
+                if name in self._recipes:
+                    self._known_recipes.setdefault(actor_id, set()).add(name)
+                    granted.append(item)
+            elif item.startswith("pattern:"):
+                name = item[len("pattern:"):]
+                if name in self._patterns:
+                    self._known_patterns.setdefault(actor_id, set()).add(name)
+                    granted.append(item)
+        return granted
+
+    def discoverable(self, actor_id: int) -> list[Recipe]:
+        """Recipes the world knows that this entity does not, and could
+        experiment its way to from what it already carries (S29)."""
+        ledger = self.resources(actor_id)
+        known = self._known_recipes.get(actor_id, set())
+        return sorted(
+            (
+                recipe
+                for name, recipe in self._recipes.items()
+                if name not in known and recipe.affordable_by(ledger)
+            ),
+            key=lambda recipe: recipe.name,
+        )
+
+    def carried_objects(self, actor_id: int) -> list[dict]:
+        """What the entity carries, as objects (not just ids)."""
+        return [
+            {
+                "id": object_id,
+                "type": self._objects[object_id].type,
+                "properties": dict(self._objects[object_id].properties),
+            }
+            for object_id in self.inventory(actor_id)
+            if object_id in self._objects
+        ]
+
+    def tool_effect(self, actor_id: int, effect: str) -> int:
+        """The multiplier a carried tool grants, e.g. ``gather`` (S29)."""
+        multiplier = 1
+        for object_id in self.inventory(actor_id):
+            obj = self._objects.get(object_id)
+            if obj is None:
+                continue
+            tool = TOOLS.get(obj.type)
+            if tool and effect in tool:
+                multiplier *= tool[effect]
+        return multiplier
+
+    def carve_object(self, object_type: str, actor_id: int, properties: dict | None = None) -> "WorldObject":
+        """Make an object straight into an entity's hands (S29).
+
+        Crafting is not placing: the thing comes to be *carried*, on
+        the registry but off the grid. It emits an OBJECT_CREATED
+        event like anything else the world gains.
+        """
+        obj = WorldObject(
+            id=self._next_object_id,
+            type=object_type,
+            position=None,  # carried, not placed
+            created_tick=self.tick,
+            properties=properties or {},
+            created_by_agent_id=actor_id,
+        )
+        self._register(obj)
+        self._next_object_id += 1
+        self._inventory.setdefault(actor_id, []).append(obj.id)
+        self._add_event(
+            EventTypes.OBJECT_CREATED,
+            actor_id=actor_id,
+            target_id=obj.id,
+            payload={
+                "type": object_type,
+                "position": None,
+                "carried": True,
+                "created_tick": obj.created_tick,
+            },
+        )
+        return obj
 
     # ------------------------------------------------------------------
     # Social interaction (S22)

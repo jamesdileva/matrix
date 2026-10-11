@@ -87,6 +87,12 @@ export type AgentDetail = {
     knowledge: string[];
     cultural_artifacts: unknown[];
   };
+  // S29: what this agent knows how to make, and what it carries.
+  technology: {
+    recipes: string[];
+    patterns: string[];
+    carried: { id: number; type: string; properties: Record<string, unknown> }[];
+  };
 };
 
 export type Drift = {

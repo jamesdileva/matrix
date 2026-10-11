@@ -340,6 +340,33 @@ population, `broadcast` reaches everyone but the speaker. Every
 observed message carries its `kind`; the timeline records DIRECT,
 ANNOUNCE and BROADCAST with their recipients.
 
+## Technology & culture (S29+)
+
+```bash
+cd backend
+.venv/Scripts/python -m app.experiments.technology    # cumulative culture: a parent's discoveries, a descendant's use
+```
+
+```bash
+# discover a recipe from your materials, craft it, invent with it
+curl -s -X POST localhost:8000/api/worlds/1/actions -H "Content-Type: application/json" \
+  -d '{"agent_id": 1, "action": {"action": "discover"}}'
+curl -s -X POST localhost:8000/api/worlds/1/actions -H "Content-Type: application/json" \
+  -d '{"agent_id": 1, "action": {"action": "craft", "recipe": "wood_axe"}}'
+curl -s -X POST localhost:8000/api/worlds/1/actions -H "Content-Type: application/json" \
+  -d '{"agent_id": 1, "action": {"action": "invent", "a": "recipe:wood_axe", "b": "recipe:wood_block"}}'
+# what the world has ever known, and what one agent knows/carries
+curl -s localhost:8000/api/worlds/1/technology
+curl -s localhost:8000/api/worlds/1/agents/1
+```
+
+Recipes and construction patterns are data; `discover` learns one
+from your materials, `craft` makes it, `invent` combines two known
+items into something new. Knowledge is inheritable: a child of a
+discoverer is born knowing its parent's recipes and patterns and can
+use them without rediscovery. The first tool pays for itself — an
+axe doubles a gather.
+
 ## Lineage experiment (S11+)
 
 ```bash

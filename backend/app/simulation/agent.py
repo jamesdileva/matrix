@@ -198,6 +198,14 @@ class Agent:
                     else None
                 ),
             },
+            # Technology (S29): what this agent knows how to make, the
+            # patterns it knows how to build, and what it is carrying —
+            # a mind cannot use its culture without seeing it.
+            "technology": {
+                "recipes": world.known_recipes(self.agent_id),
+                "patterns": world.known_patterns(self.agent_id),
+            },
+            "carried": world.carried_objects(self.agent_id),
         }
 
     def decide(self) -> dict:

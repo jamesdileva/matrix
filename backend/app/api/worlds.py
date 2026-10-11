@@ -248,6 +248,12 @@ def get_agent(world_id: int, agent_id: int, request: Request) -> dict:
             },
         },
         "resources": host.engine.world.resources(agent.agent_id),
+        # S29: what this agent knows how to make, and what it carries.
+        "technology": {
+            "recipes": host.engine.world.known_recipes(agent.agent_id),
+            "patterns": host.engine.world.known_patterns(agent.agent_id),
+            "carried": host.engine.world.carried_objects(agent.agent_id),
+        },
         "last_action": (
             {
                 "tick": memory[-1]["tick"],
@@ -628,3 +634,31 @@ def get_relationships(world_id: int, agent_id: int, request: Request) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"world_id": world_id, "agent_id": agent_id, "relationships": relationships}
+
+
+@router.get("/worlds/{world_id}/technology")
+def get_technology(world_id: int, request: Request) -> dict:
+    """S29: the world's technology — every recipe and pattern it has
+    ever known, and the inventions on its timeline.
+
+    Culture's ledger: what has been discovered, what has been
+    invented, and by whom.
+    """
+    host = _host(request, world_id)
+    world = host.engine.world
+    inventions = [
+        {
+            "tick": event.tick,
+            "actor_id": event.actor_id,
+            "kind": event.payload.get("kind"),
+            **({k: v for k, v in event.payload.items() if k != "kind"}),
+        }
+        for event in world.events
+        if event.type == EventTypes.INVENTION
+    ]
+    return {
+        "world_id": world_id,
+        "recipes": [recipe.to_dict() for recipe in world.recipes.values()],
+        "patterns": [pattern.to_dict() for pattern in world.patterns.values()],
+        "inventions": inventions,
+    }

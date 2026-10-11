@@ -171,7 +171,20 @@ export function AgentInspector({ worldId, agentId, onClose, onSelectAgent }: Pro
         ))}
       </div>
 
-      <Block title={`memory (${detail.memory.length})`}>
+      <Block title="technology">
+        <Row label="recipes" value={detail.technology.recipes.join(", ") || "—"} />
+        <Row label="patterns" value={detail.technology.patterns.join(", ") || "—"} />
+        <Row
+          label="carried"
+          value={
+            detail.technology.carried
+              .map((item) => `${item.type}${item.properties.recipe ? ` (${String(item.properties.recipe)})` : ""}`)
+              .join(", ") || "—"
+          }
+        />
+      </Block>
+
+      <Block title="memory">
         <ol style={{ listStyle: "none", margin: 0, padding: 0, fontSize: "0.68rem", display: "flex", flexDirection: "column", gap: "0.15rem", maxHeight: 140, overflowY: "auto" }}>
           {detail.memory.length === 0 && <li style={{ color: colors.dim }}>empty</li>}
           {detail.memory.map((entry, index) => (

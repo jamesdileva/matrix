@@ -51,6 +51,10 @@ class EventTypes:
     DIRECT = "DIRECT"
     ANNOUNCE = "ANNOUNCE"
     BROADCAST = "BROADCAST"
+    # S29: technology. A discovery, a crafting and an invention are
+    # facts too — culture is made of them.
+    INVENTION = "INVENTION"
+    CRAFT = "CRAFT"
     # S27: populations. A group coming to be — founded, or a new
     # member arriving under its spawn rule — is a fact too.
     POPULATION_SPAWN = "POPULATION_SPAWN"

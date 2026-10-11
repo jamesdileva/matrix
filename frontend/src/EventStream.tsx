@@ -24,6 +24,9 @@ const EVENT_COLORS: Record<string, string> = {
   DIRECT: colors.message,
   ANNOUNCE: colors.message,
   BROADCAST: colors.message,
+  // S29: culture's events — a discovery, a crafting, an invention.
+  INVENTION: colors.lineage,
+  CRAFT: colors.lineage,
 };
 
 function summarize(event: WorldEvent): string {
@@ -50,6 +53,12 @@ function summarize(event: WorldEvent): string {
   if (type === "ANNOUNCE")
     return `to ${String(payload.scope ?? "?")}: "${String(payload.message ?? "").slice(0, 60)}"`;
   if (type === "BROADCAST") return `to all: "${String(payload.message ?? "").slice(0, 60)}"`;
+  // S29: the discovery, the crafting, the invention.
+  if (type === "INVENTION")
+    return payload.kind === "discovery"
+      ? `discovered ${String(payload.name ?? "?")}`
+      : `invented ${String(payload.result ?? "?")} from ${String(payload.from ?? "")}`;
+  if (type === "CRAFT") return `crafted ${String(payload.object_type ?? "?")} (${String(payload.recipe ?? "?")})`;
   if (type === "AGENT_BORN") {
     return `gen ${String(payload.generation)} child of ${String(payload.parent_id)}`;
   }

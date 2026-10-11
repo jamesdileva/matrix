@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from app.simulation.events import Event, EventTypes
+from app.simulation.technology import Recipe, invention_for, knowledge_item
 from app.simulation.world import (
     BLOCK_RECIPES,
     RESOURCE_OF_OBJECT,
@@ -73,6 +74,9 @@ HANDLERS = {
     "tell": "_tell",
     "announce": "_announce",
     "broadcast": "_broadcast",
+    "discover": "_discover",
+    "craft": "_craft",
+    "invent": "_invent",
     "give": "_give",
     "take": "_take",
     "trade": "_trade",
@@ -137,6 +141,9 @@ def _gather(world: World, actor_id, action: dict) -> dict:
         return {"resource": resource, "amount": GATHER_YIELD}
 
     source_type = RESOURCE_SOURCES[resource]
+    # A tool the carrier holds deepens the cut (S29): the axe is the
+    # first discovery that pays for itself on the very next action.
+    amount = GATHER_YIELD * world.tool_effect(actor_id, "gather")
     for dx, dy in DIRECTIONS.values():
         cell = Position(position.x + dx, position.y + dy)
         if not world.in_bounds(cell):
@@ -147,15 +154,15 @@ def _gather(world: World, actor_id, action: dict) -> dict:
         quantity = obj.properties.get("quantity", 0)
         if not isinstance(quantity, int) or quantity <= 0:
             continue
-        obj.properties["quantity"] = quantity - GATHER_YIELD
-        world.credit_resource(actor_id, resource, GATHER_YIELD)
+        obj.properties["quantity"] = quantity - amount
+        world.credit_resource(actor_id, resource, amount)
         depleted = False
         if obj.properties["quantity"] <= 0:
             world.remove_object(obj.id)
             depleted = True
         return {
             "resource": resource,
-            "amount": GATHER_YIELD,
+            "amount": amount,
             "source_object_id": obj.id,
             "depleted": depleted,
         }
@@ -332,6 +339,118 @@ def _broadcast(world: World, actor_id, action: dict) -> dict:
     message = _spoken_message(action)
     event = world.broadcast(actor_id, message)
     return {"message": message, "recipients": event.payload["recipients"]}
+
+
+# ----------------------------------------------------------------------
+# Technology (S29)
+# ----------------------------------------------------------------------
+
+
+def _discover(world: World, actor_id, action: dict) -> dict:
+    """Experiment with what you carry and learn a recipe (S29).
+
+    Discovery needs materials to experiment with: a recipe the world
+    knows becomes known to the actor when its inputs are affordable
+    from the actor's ledger. The first such undiscovered recipe (by
+    name, so runs are reproducible) is learned; nothing else changes.
+    """
+    _require_actor(world, actor_id)
+    candidates = world.discoverable(actor_id)
+    if not candidates:
+        raise _Rejected("nothing_to_discover", {"carried": world.resources(actor_id)})
+    recipe = candidates[0]
+    world.grant_knowledge(actor_id, [knowledge_item(recipe)])
+    world._add_event(
+        EventTypes.INVENTION,
+        actor_id=actor_id,
+        payload={
+            "kind": "discovery",
+            "name": recipe.name,
+            "inputs": dict(recipe.inputs),
+            "produces": recipe.produces,
+        },
+    )
+    return {"discovered": recipe.name, "produces": recipe.produces}
+
+
+def _craft(world: World, actor_id, action: dict) -> dict:
+    """Make a thing from materials, by a recipe you know (S29).
+
+    The recipe must be in the actor's known technology; the inputs are
+    spent from the ledger; the thing comes to be carried. A tool is
+    usable the moment it exists — the axe pays on the next gather.
+    """
+    _require_actor(world, actor_id)
+    name = action.get("recipe")
+    if not isinstance(name, str) or name not in world.known_recipes(actor_id):
+        raise _Rejected("unknown_recipe", {"recipe": name, "known": world.known_recipes(actor_id)})
+    recipe = world.recipes[name]
+    ledger = world.resources(actor_id)
+    if not recipe.affordable_by(ledger):
+        raise _Rejected(
+            "insufficient_materials", {"recipe": name, "cost": recipe.inputs, "carried": ledger}
+        )
+    for kind, amount in recipe.inputs.items():
+        world.spend_resource(actor_id, kind, amount)
+    obj = world.carve_object(recipe.produces, actor_id, {"recipe": name, "crafted_by": actor_id})
+    world._add_event(
+        EventTypes.CRAFT,
+        actor_id=actor_id,
+        target_id=obj.id,
+        payload={
+            "recipe": name,
+            "object_id": obj.id,
+            "object_type": recipe.produces,
+            "inputs": dict(recipe.inputs),
+        },
+    )
+    return {
+        "recipe": name,
+        "object_id": obj.id,
+        "object_type": recipe.produces,
+        "tool": recipe.produces,
+    }
+
+
+def _invent(world: World, actor_id, action: dict) -> dict:
+    """Combine two things you know into one new thing (S29).
+
+    Combination is deterministic — the table is the world's chemistry.
+    Both inputs must be knowledge the actor holds; the result is new
+    to the actor; and inventing the same thing twice is refused, not
+    silently repeated.
+    """
+    _require_actor(world, actor_id)
+    first, second = action.get("a"), action.get("b")
+    known = set(world.technology_of(actor_id))
+    for item in (first, second):
+        if not isinstance(item, str) or item not in known:
+            raise _Rejected("unknown_knowledge", {"knowledge": item})
+    result = invention_for(first, second)
+    if result is None:
+        raise _Rejected("no_such_invention", {"a": first, "b": second})
+    already = knowledge_item(result)
+    if already in world.technology_of(actor_id):
+        raise _Rejected("already_invented", {"invention": already})
+    if isinstance(result, Recipe):
+        world.add_recipe(result)
+    else:
+        world.add_pattern(result)
+    world.grant_knowledge(actor_id, [already])
+    world._add_event(
+        EventTypes.INVENTION,
+        actor_id=actor_id,
+        payload={
+            "kind": "invention",
+            "from": sorted((first, second)),
+            "result": already,
+            "result_kind": "recipe" if isinstance(result, Recipe) else "pattern",
+        },
+    )
+    return {
+        "invented": already,
+        "kind": "recipe" if isinstance(result, Recipe) else "pattern",
+    }
 
 
 # ----------------------------------------------------------------------
