@@ -278,6 +278,18 @@ never escape alone. Teammates' positions ride in every observation
 (shared observations), and the pair's utterances are logged on the
 timeline.
 
+## Builder vs Escapee (S26+)
+
+```bash
+cd backend
+.venv/Scripts/python -m app.experiments.arms_race --rounds 4    # the arms race
+```
+
+Each round: Population A builds a prison (ring walls + door, wood
+granted), Population B escapes it (removing the blocks in the way).
+Every escape thickens the next round's prison by one layer — the
+builder receives the outcome and the rules carry forward.
+
 ## Lineage experiment (S11+)
 
 ```bash

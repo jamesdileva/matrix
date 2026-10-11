@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S26 — Builder vs Escapee
-- Completed sprints: S01–S25, S06B (S25 done 2026-10-08)
+- **Next sprint:** S27 — Population Manager
+- Completed sprints: S01–S26, S06B (S26 done 2026-10-08)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -2056,3 +2056,60 @@ plates, doors that re-close.
 
 ### Commits
 - `5fc2959` — S25: cooperative escape — heavy stone, pressure plates, joint occupancy, shared observations, logged communication [pushed]
+
+## S26 � Builder vs Escapee (in progress)
+
+### Plan (2026-10-08)
+The artificial arms race (roadmap S26): Population A builds a prison,
+Population B escapes it, and the rounds repeat with the builder
+learning from the last outcome. Scripted calibrations for both sides
+(the builder is S18's build system on legs; the escapee is S24's
+remove-the-block route), and the feedback loop is concrete: when the
+escapee walks out, the next round's prison is thicker. Verification
+is the roadmap's: prison generated, escape attempted, success
+detected, the builder receives the outcome, and the next round's
+rules reflect it.
+
+### Scope (2026-10-08)
+In: `app/experiments/arms_race.py` — the round (a world per round,
+builders then escapee), the builder policy (assigned wall cells,
+granted wood, walk-and-build), the escapee policy (remove what blocks
+the way out), the adaptive rule (thicken on escape), the race runner
+and report, tests, CLI.
+Out: model minds on either side (the round engine is provider-ready
+but the calibration is scripted), doors that need keys, walls that
+regenerate, scoring beyond escape/no-escape.
+
+### Implementation
+- `app/experiments/arms_race.py`: a round is one world — the two
+  builders split the ring's cells between them (inner rings first, so
+  nobody has to stand on a block they already placed), walk-and-build
+  with granted wood, and the escapee is jailed at the centre only once
+  the prison is complete. The escapee's instrument is simple: go east,
+  removing whatever stands in the way — the wall layers it meets are
+  discovered, not assumed.
+- The feedback loop is concrete rather than decorative: every escape
+  thickens the next round's prison by one Chebyshev layer. The round
+  engine is provider-ready (the same shape as the house/escape
+  runners), but the calibration for both sides is scripted.
+- Block counting events as they happen, so the escapee removing the
+  door block doesn't decrement the builder's score.
+
+### Verification
+- Tests: pytest **370 passed** (12 new: a full ring is generated; an
+  escape occurs and succeeds into the sandbox; a thicker prison is
+  slower to escape; the round's experiment row completes; rounds
+  repeat with rules carrying forward — 1, 2, 3 layers; the builder
+  receives the outcome (round N's escape sets round N+1's layers);
+  one round is allowed, zero rejected; geometry — rings close,
+  assignments cover every wall cell exactly once, inner rings first).
+- Live (dev DB): a 4-round race — **16/40/72/81 blocks, escapes at
+  ticks 5/6/7/7**, final rules 5 layers: the builder read every escape
+  and the prison kept growing.
+- Roadmap S26 checklist: prison generated ✅; escape attempt occurs
+  ✅; successful escape detected ✅; builder receives outcome ✅ (it
+  is the input to the next round's rules); next round can use updated
+  rules ✅. A self-contained evolutionary game exists ✅.
+
+### Commits
+- (pending — not yet committed at time of writing)
