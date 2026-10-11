@@ -2055,4 +2055,4 @@ plates, doors that re-close.
   logged ✅.
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `5fc2959` — S25: cooperative escape — heavy stone, pressure plates, joint occupancy, shared observations, logged communication [pushed]
