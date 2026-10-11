@@ -2243,5 +2243,5 @@ chains through intermediaries, conversation memory.
   populations ✅.
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `37b592d` — S28: communication networks — tell/announce/broadcast routing, rumor experiment [pushed]
 
