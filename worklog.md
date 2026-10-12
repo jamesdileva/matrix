@@ -2401,5 +2401,5 @@ knowledge bookkeeping beyond the S29 inheritance.
   small settlement ✅. The Void begins to look inhabited ✅.
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `cf0ca30` — S30: settlements — homes, shared storage, roads, identity, resource zones [pushed]
 
