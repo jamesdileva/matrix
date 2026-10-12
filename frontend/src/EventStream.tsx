@@ -27,6 +27,14 @@ const EVENT_COLORS: Record<string, string> = {
   // S29: culture's events — a discovery, a crafting, an invention.
   INVENTION: colors.lineage,
   CRAFT: colors.lineage,
+  // S30: the settlement's events — founded, joined, grown, banked,
+  // paved, claimed.
+  SETTLEMENT_FOUNDED: colors.lineage,
+  SETTLEMENT_JOINED: colors.lineage,
+  SETTLEMENT_GROWN: colors.lineage,
+  SETTLEMENT_STORAGE: colors.lineage,
+  ROAD_LAID: colors.dim,
+  ZONE_CLAIMED: colors.lineage,
 };
 
 function summarize(event: WorldEvent): string {
@@ -59,6 +67,19 @@ function summarize(event: WorldEvent): string {
       ? `discovered ${String(payload.name ?? "?")}`
       : `invented ${String(payload.result ?? "?")} from ${String(payload.from ?? "")}`;
   if (type === "CRAFT") return `crafted ${String(payload.object_type ?? "?")} (${String(payload.recipe ?? "?")})`;
+  // S30: the settlement named, joined, grown, banked, paved, claimed.
+  if (type === "SETTLEMENT_FOUNDED")
+    return `founded ${String(payload.name ?? "?")} on structure ${String(payload.structure_id ?? "?")}`;
+  if (type === "SETTLEMENT_JOINED") return `joined ${String(payload.name ?? "?")}`;
+  if (type === "SETTLEMENT_GROWN")
+    return `${String(payload.kind ?? "?")} structure ${String(payload.structure_id ?? "?")} adopted`;
+  if (type === "SETTLEMENT_STORAGE")
+    return `${String(payload.kind ?? "?")} ${String(payload.amount ?? "?")} ${String(payload.resource ?? "?")}`;
+  if (type === "ROAD_LAID") return `${String((payload.cells as unknown[] | undefined)?.length ?? "?")} cells paved`;
+  if (type === "ZONE_CLAIMED")
+    return payload.released
+      ? `released object ${String(payload.object_id ?? "?")}`
+      : `claimed ${String(payload.resource ?? "?")} @${String(payload.object_id ?? "?")}`;
   if (type === "AGENT_BORN") {
     return `gen ${String(payload.generation)} child of ${String(payload.parent_id)}`;
   }

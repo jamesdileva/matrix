@@ -55,6 +55,14 @@ class EventTypes:
     # facts too — culture is made of them.
     INVENTION = "INVENTION"
     CRAFT = "CRAFT"
+    # S30: settlements. A community founded, joined, grown, banked
+    # into, paved and claimed is a fact too.
+    SETTLEMENT_FOUNDED = "SETTLEMENT_FOUNDED"
+    SETTLEMENT_JOINED = "SETTLEMENT_JOINED"
+    SETTLEMENT_GROWN = "SETTLEMENT_GROWN"
+    SETTLEMENT_STORAGE = "SETTLEMENT_STORAGE"
+    ROAD_LAID = "ROAD_LAID"
+    ZONE_CLAIMED = "ZONE_CLAIMED"
     # S27: populations. A group coming to be — founded, or a new
     # member arriving under its spawn rule — is a fact too.
     POPULATION_SPAWN = "POPULATION_SPAWN"

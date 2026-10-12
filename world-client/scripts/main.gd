@@ -272,6 +272,18 @@ func _format_event(e: Dictionary) -> String:
 			detail = "invented " + str(payload.get("result", "?"))
 	elif kind == "CRAFT" and payload.has("recipe"):
 		detail = "crafted " + str(payload.get("object_type", "?"))
+	elif kind == "SETTLEMENT_FOUNDED" and payload.has("name"):
+		detail = "founded " + str(payload.get("name", "?"))
+	elif kind == "SETTLEMENT_JOINED":
+		detail = "joined " + str(payload.get("name", "?"))
+	elif kind == "SETTLEMENT_GROWN":
+		detail = str(payload.get("kind", "?")) + " structure adopted"
+	elif kind == "SETTLEMENT_STORAGE":
+		detail = str(payload.get("kind", "?")) + " " + str(payload.get("resource", "?"))
+	elif kind == "ROAD_LAID":
+		detail = "road laid"
+	elif kind == "ZONE_CLAIMED":
+		detail = "zone claimed"
 	var actor = e.get("actor_id")
 	var who := "world" if actor == null else "agent %d" % int(actor)
 	return "[%s] %s: %s" % [who, kind.to_lower(), detail]

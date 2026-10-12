@@ -22,12 +22,20 @@ from typing import TYPE_CHECKING
 from app.simulation.bus import EventBus
 from app.simulation.errors import CellOccupiedError, InvalidPositionError
 from app.simulation.events import Event, EventTypes
+from app.simulation.geometry import Position
 from app.simulation.technology import (
     BASE_RECIPES,
     TOOLS,
     Pattern,
     Recipe,
     knowledge_item,
+)
+from app.simulation.settlement import (
+    PURPOSE_HOME,
+    PURPOSE_STORAGE,
+    SETTLEMENT_EXTENT,
+    Road,
+    Settlement,
 )
 
 if TYPE_CHECKING:
@@ -93,19 +101,6 @@ _TERRAIN_CHARS: dict[Terrain, str] = {
 _CHARS_TO_TERRAIN: dict[str, Terrain] = {c: t for t, c in _TERRAIN_CHARS.items()}
 
 _OBJECT_CHARS = {"tree": "t", "stone": "s", "food": "f"}
-
-
-@dataclass(frozen=True, slots=True)
-class Position:
-    x: int
-    y: int
-
-    def to_dict(self) -> dict:
-        return {"x": self.x, "y": self.y}
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "Position":
-        return cls(x=data["x"], y=data["y"])
 
 
 @dataclass
@@ -225,6 +220,13 @@ class World:
         self._patterns: dict[str, Pattern] = {}
         self._known_recipes: dict[int, set[str]] = {}
         self._known_patterns: dict[int, set[str]] = {}
+        # Settlements (S30): the communities, their roads, and the
+        # resource zones they hold (object id -> settlement id).
+        self._settlements: dict[int, Settlement] = {}
+        self._roads: dict[int, Road] = {}
+        self._zones: dict[int, int] = {}
+        self._next_settlement_id = 1
+        self._next_road_id = 1
         # Teams (S25): team id -> member entity ids. Shared
         # observations list teammates by team, not by population.
         self._teams: dict[int, set[int]] = {}
@@ -1163,6 +1165,483 @@ class World:
         for position in self._entity_cells:
             grid[position.y][position.x] = "@"
         return "\n".join("".join(row) for row in grid)
+
+    # ------------------------------------------------------------------
+    # Settlements (S30)
+    # ------------------------------------------------------------------
+
+    @property
+    def settlements(self) -> list[Settlement]:
+        """Every settlement, in founding order."""
+        return [self._settlements[i] for i in sorted(self._settlements)]
+
+    @property
+    def roads(self) -> list[Road]:
+        """Every road, in creation order."""
+        return [self._roads[i] for i in sorted(self._roads)]
+
+    def settlement(self, settlement_id: int) -> Settlement | None:
+        return self._settlements.get(settlement_id)
+
+    def settlement_of(self, entity_id: int) -> Settlement | None:
+        """The settlement this entity belongs to, if any."""
+        for settlement in self._settlements.values():
+            if settlement.is_member(entity_id):
+                return settlement
+        return None
+
+    def settlement_holding(self, structure_id: int) -> Settlement | None:
+        """The settlement that counts this structure as its own."""
+        for settlement in self._settlements.values():
+            if structure_id in settlement.home_ids or structure_id in settlement.storage_ids:
+                return settlement
+        return None
+
+    def zone_claimer(self, object_id: int) -> int | None:
+        """The settlement holding a resource zone on this object."""
+        return self._zones.get(object_id)
+
+    def is_settlement_member(self, entity_id: int, settlement_id: int) -> bool:
+        settlement = self._settlements.get(settlement_id)
+        return settlement is not None and settlement.is_member(entity_id)
+
+    def found_settlement(self, actor_id: int, name: str, structure_id: int) -> Settlement:
+        """Found a settlement on a structure: identity, founder, home.
+
+        The structure must belong to nobody yet, and the founder must
+        not already belong to one — a community has one home people.
+        The settlement's centre is the structure's centre, which is
+        what its extent is measured from.
+        """
+        if actor_id not in self._entities:
+            raise ValueError(f"unknown actor {actor_id!r}")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("a settlement needs a name")
+        name = name.strip()
+        if any(s.name == name for s in self._settlements.values()):
+            raise ValueError(f"a settlement named {name!r} already stands")
+        if self.settlement_of(actor_id) is not None:
+            raise ValueError(f"actor {actor_id} already belongs to a settlement")
+        if self.settlement_holding(structure_id) is not None:
+            raise ValueError(f"structure {structure_id} already belongs to a settlement")
+        structure = self._structures.get(structure_id)
+        if structure is None:
+            raise ValueError(f"unknown structure {structure_id!r}")
+        if not self._is_adjacent_to_structure(actor_id, structure_id):
+            raise ValueError(f"actor {actor_id} is not beside structure {structure_id}")
+
+        population_id = self._entity_populations.get(actor_id)
+        settlement = Settlement(
+            id=self._next_settlement_id,
+            name=name,
+            founder_id=actor_id,
+            population_id=population_id,
+            founded_tick=self.tick,
+            center=self._structure_center(structure_id),
+        )
+        self._next_settlement_id += 1
+        settlement.members.add(actor_id)
+        if structure.purpose is None:
+            structure.purpose = PURPOSE_HOME
+        if structure.purpose == PURPOSE_STORAGE:
+            settlement.storage_ids.append(structure_id)
+        else:
+            settlement.home_ids.append(structure_id)
+        self._settlements[settlement.id] = settlement
+        self._add_event(
+            EventTypes.SETTLEMENT_FOUNDED,
+            actor_id=actor_id,
+            payload={
+                "settlement_id": settlement.id,
+                "name": name,
+                "structure_id": structure_id,
+                "population_id": population_id,
+                "center": settlement.center.to_dict(),
+            },
+        )
+        return settlement
+
+    def join_settlement(self, actor_id: int, settlement_id: int) -> Settlement:
+        """Join a settlement: your people's community, or none.
+
+        Membership follows population identity — the boundary S27 drew.
+        An agent already belonging to a settlement stays put.
+        """
+        settlement = self._settlements.get(settlement_id)
+        if settlement is None:
+            raise ValueError(f"unknown settlement {settlement_id!r}")
+        if actor_id not in self._entities:
+            raise ValueError(f"unknown actor {actor_id!r}")
+        if settlement.is_member(actor_id):
+            raise ValueError(f"actor {actor_id} already belongs to {settlement.name!r}")
+        existing = self.settlement_of(actor_id)
+        if existing is not None:
+            raise ValueError(f"actor {actor_id} already belongs to {existing.name!r}")
+        my_population = self._entity_populations.get(actor_id)
+        if (
+            settlement.population_id is not None
+            and my_population is not None
+            and my_population != settlement.population_id
+        ):
+            raise ValueError(
+                f"actor {actor_id} is not of the people who founded {settlement.name!r}"
+            )
+        settlement.members.add(actor_id)
+        self._add_event(
+            EventTypes.SETTLEMENT_JOINED,
+            actor_id=actor_id,
+            payload={"settlement_id": settlement.id, "name": settlement.name},
+        )
+        return settlement
+
+    def adopt_structure(self, actor_id: int, settlement_id: int, structure_id: int) -> dict:
+        """A member claims a standing structure for its settlement.
+
+        The member must be beside it and it must stand within the
+        settlement's extent — a village does not reach the other side
+        of the world. Its purpose decides what it becomes: a home, or
+        shared storage.
+        """
+        settlement = self._settlements.get(settlement_id)
+        if settlement is None:
+            raise ValueError(f"unknown settlement {settlement_id!r}")
+        if not settlement.is_member(actor_id):
+            raise ValueError(f"actor {actor_id} is not a member of {settlement.name!r}")
+        structure = self._structures.get(structure_id)
+        if structure is None:
+            raise ValueError(f"unknown structure {structure_id!r}")
+        if self.settlement_holding(structure_id) is not None:
+            raise ValueError(f"structure {structure_id} already belongs to a settlement")
+        if not self._is_adjacent_to_structure(actor_id, structure_id):
+            raise ValueError(f"actor {actor_id} is not beside structure {structure_id}")
+        center = self._structure_center(structure_id)
+        if self._distance(center, settlement.center) > SETTLEMENT_EXTENT:
+            raise ValueError(
+                f"structure {structure_id} stands outside {settlement.name!r}'s extent"
+            )
+        purpose = structure.purpose
+        if purpose == PURPOSE_STORAGE:
+            settlement.storage_ids.append(structure_id)
+            kind = "storage"
+        else:
+            if purpose is None:
+                structure.purpose = PURPOSE_HOME
+            settlement.home_ids.append(structure_id)
+            kind = "home"
+        self._add_event(
+            EventTypes.SETTLEMENT_GROWN,
+            actor_id=actor_id,
+            payload={
+                "settlement_id": settlement.id,
+                "name": settlement.name,
+                "structure_id": structure_id,
+                "kind": kind,
+            },
+        )
+        return {"structure_id": structure_id, "kind": kind}
+
+    def maybe_adopt(self, actor_id: int, structure_id: int) -> dict | None:
+        """The settlement grows under its own builders' hands (S30).
+
+        A member raising a structure inside the settlement's extent
+        counts it automatically — a population that builds together
+        grows a village without being told to. Returns what was
+        adopted, or None.
+        """
+        settlement = self.settlement_of(actor_id)
+        if settlement is None:
+            return None
+        structure = self._structures.get(structure_id)
+        if structure is None or self.settlement_holding(structure_id) is not None:
+            return None
+        center = self._structure_center(structure_id)
+        if self._distance(center, settlement.center) > SETTLEMENT_EXTENT:
+            return None
+        try:
+            return self.adopt_structure(actor_id, settlement.id, structure_id)
+        except ValueError:
+            return None
+
+    def deposit(self, actor_id: int, settlement_id: int, resource: str, amount: int) -> dict:
+        """Bank a resource into the settlement's shared storage."""
+        settlement = self._settlements.get(settlement_id)
+        if settlement is None:
+            raise ValueError(f"unknown settlement {settlement_id!r}")
+        if not settlement.is_member(actor_id):
+            raise ValueError(f"actor {actor_id} is not a member of {settlement.name!r}")
+        if not isinstance(amount, int) or isinstance(amount, bool) or amount < 1:
+            raise ValueError("amount must be a positive integer")
+        if not self._beside_storage(actor_id, settlement):
+            raise ValueError(f"actor {actor_id} is not beside {settlement.name!r}'s storage")
+        if self.resource_count(actor_id, resource) < amount:
+            raise ValueError(
+                f"actor {actor_id} carries {self.resource_count(actor_id, resource)} "
+                f"{resource}, not {amount}"
+            )
+        self.spend_resource(actor_id, resource, amount)
+        settlement.storage[resource] = settlement.storage.get(resource, 0) + amount
+        self._add_event(
+            EventTypes.SETTLEMENT_STORAGE,
+            actor_id=actor_id,
+            payload={
+                "settlement_id": settlement.id,
+                "name": settlement.name,
+                "kind": "deposit",
+                "resource": resource,
+                "amount": amount,
+                "balance": dict(settlement.storage),
+            },
+        )
+        return {"resource": resource, "amount": amount, "balance": dict(settlement.storage)}
+
+    def withdraw(self, actor_id: int, settlement_id: int, resource: str, amount: int) -> dict:
+        """Draw a resource back out of the shared storage."""
+        settlement = self._settlements.get(settlement_id)
+        if settlement is None:
+            raise ValueError(f"unknown settlement {settlement_id!r}")
+        if not settlement.is_member(actor_id):
+            raise ValueError(f"actor {actor_id} is not a member of {settlement.name!r}")
+        if not isinstance(amount, int) or isinstance(amount, bool) or amount < 1:
+            raise ValueError("amount must be a positive integer")
+        if not self._beside_storage(actor_id, settlement):
+            raise ValueError(f"actor {actor_id} is not beside {settlement.name!r}'s storage")
+        if settlement.storage.get(resource, 0) < amount:
+            raise ValueError(
+                f"{settlement.name!r} holds {settlement.storage.get(resource, 0)} "
+                f"{resource}, not {amount}"
+            )
+        settlement.storage[resource] -= amount
+        if settlement.storage[resource] <= 0:
+            del settlement.storage[resource]
+        self.credit_resource(actor_id, resource, amount)
+        self._add_event(
+            EventTypes.SETTLEMENT_STORAGE,
+            actor_id=actor_id,
+            payload={
+                "settlement_id": settlement.id,
+                "name": settlement.name,
+                "kind": "withdrawal",
+                "resource": resource,
+                "amount": amount,
+                "balance": dict(settlement.storage),
+            },
+        )
+        return {"resource": resource, "amount": amount, "balance": dict(settlement.storage)}
+
+    def claim_zone(self, actor_id: int, settlement_id: int, resource: str, object_id: int) -> dict:
+        """Claim a resource source for the settlement: the Void's first
+        property. Outsiders are refused at the source; members gather
+        freely."""
+        settlement = self._settlements.get(settlement_id)
+        if settlement is None:
+            raise ValueError(f"unknown settlement {settlement_id!r}")
+        if not settlement.is_member(actor_id):
+            raise ValueError(f"actor {actor_id} is not a member of {settlement.name!r}")
+        obj = self._objects.get(object_id)
+        if obj is None:
+            raise ValueError(f"unknown object {object_id!r}")
+        if obj.position is None:
+            raise ValueError(f"object {object_id} is carried, not a source in the world")
+        if obj.properties.get("resource") != resource:
+            raise ValueError(f"object {object_id} yields {obj.properties.get('resource')!r}, not {resource!r}")
+        if not self._is_adjacent_to_object(actor_id, obj.position):
+            raise ValueError(f"actor {actor_id} is not beside object {object_id}")
+        holder = self._zones.get(object_id)
+        if holder is not None:
+            held = self._settlements.get(holder)
+            held_by = held.name if held else f"settlement {holder}"
+            raise ValueError(f"object {object_id} is already claimed by {held_by}")
+        self._zones[object_id] = settlement.id
+        settlement.zones[object_id] = resource
+        self._add_event(
+            EventTypes.ZONE_CLAIMED,
+            actor_id=actor_id,
+            payload={
+                "settlement_id": settlement.id,
+                "name": settlement.name,
+                "resource": resource,
+                "object_id": object_id,
+                "position": obj.position.to_dict(),
+            },
+        )
+        return {"object_id": object_id, "resource": resource}
+
+    def release_zone(self, actor_id: int, settlement_id: int, object_id: int) -> dict:
+        """Let a claimed source go."""
+        settlement = self._settlements.get(settlement_id)
+        if settlement is None:
+            raise ValueError(f"unknown settlement {settlement_id!r}")
+        if not settlement.is_member(actor_id):
+            raise ValueError(f"actor {actor_id} is not a member of {settlement.name!r}")
+        if self._zones.get(object_id) != settlement.id:
+            raise ValueError(f"object {object_id} is not held by {settlement.name!r}")
+        self._zones.pop(object_id, None)
+        settlement.zones.pop(object_id, None)
+        self._add_event(
+            EventTypes.ZONE_CLAIMED,
+            actor_id=actor_id,
+            payload={
+                "settlement_id": settlement.id,
+                "name": settlement.name,
+                "resource": None,
+                "object_id": object_id,
+                "released": True,
+            },
+        )
+        return {"object_id": object_id, "released": True}
+
+    def pave(self, actor_id: int, settlement_id: int, cells: list[dict]) -> dict:
+        """Lay road: cells on the ground that block nothing.
+
+        A road is a record, not a wall — you can walk it. Cells join
+        the settlement's newest road when they touch it, so paving a
+        path builds one continuous road rather than a scatter.
+        """
+        settlement = self._settlements.get(settlement_id)
+        if settlement is None:
+            raise ValueError(f"unknown settlement {settlement_id!r}")
+        if not settlement.is_member(actor_id):
+            raise ValueError(f"actor {actor_id} is not a member of {settlement.name!r}")
+        if not isinstance(cells, list) or not cells:
+            raise ValueError("paving needs at least one cell")
+        parsed = []
+        for cell in cells:
+            x, y = cell["x"], cell["y"]
+            if not isinstance(x, int) or not isinstance(y, int):
+                raise ValueError(f"road cells must be integer coordinates, got {cell!r}")
+            parsed.append(Position(x, y))
+        position = self._entities.get(actor_id)
+        if position is None:  # pragma: no cover - membership implies presence
+            raise ValueError(f"unknown actor {actor_id!r}")
+        for cell in parsed:
+            if not self.in_bounds(cell) or self.terrain_at(cell) is not Terrain.FLOOR:
+                raise ValueError(f"road cell ({cell.x},{cell.y}) is not floor")
+            if cell in self._occupancy:
+                raise ValueError(f"road cell ({cell.x},{cell.y}) holds an object")
+            if self._distance(cell, settlement.center) > SETTLEMENT_EXTENT:
+                raise ValueError(
+                    f"road cell ({cell.x},{cell.y}) stands outside {settlement.name!r}'s extent"
+                )
+            if cell != position and not self._is_adjacent(position, cell):
+                raise ValueError(f"road cell ({cell.x},{cell.y}) is out of reach")
+            position = cell
+        laid = []
+        for cell in parsed:
+            road_id = self._road_touching(settlement.id, cell)
+            if road_id is None:
+                road = Road(
+                    id=self._next_road_id,
+                    settlement_id=settlement.id,
+                    owner_id=actor_id,
+                    created_tick=self.tick,
+                )
+                self._next_road_id += 1
+                self._roads[road.id] = road
+                settlement.road_ids.append(road.id)
+                road_id = road.id
+            road = self._roads[road_id]
+            if cell not in road.cells:
+                road.cells.append(cell)
+            laid.append(cell.to_dict())
+        self._add_event(
+            EventTypes.ROAD_LAID,
+            actor_id=actor_id,
+            payload={
+                "settlement_id": settlement.id,
+                "name": settlement.name,
+                "cells": laid,
+                "road_ids": list(settlement.road_ids),
+            },
+        )
+        return {"cells": laid, "roads": len(settlement.road_ids)}
+
+    # --- settlement helpers ---
+
+    def settlement_view(self, actor_id: int) -> dict | None:
+        """A member's view of its settlement (S30): identity, the shared
+        storage it can draw on, the zones it holds, and its people.
+
+        None for everyone outside — a home you cannot see is not a
+        home.
+        """
+        settlement = self.settlement_of(actor_id)
+        if settlement is None:
+            return None
+        zones = []
+        for object_id, resource in settlement.zones.items():
+            obj = self._objects.get(object_id)
+            zones.append(
+                {
+                    "object_id": object_id,
+                    "resource": resource,
+                    "position": obj.position.to_dict() if obj and obj.position else None,
+                }
+            )
+        return {
+            "id": settlement.id,
+            "name": settlement.name,
+            "role": settlement.role_of(actor_id),
+            "population_id": settlement.population_id,
+            "members": sorted(settlement.members),
+            "homes": len(settlement.home_ids),
+            "storage": len(settlement.storage_ids),
+            "roads": len(settlement.road_ids),
+            "contents": dict(settlement.storage),
+            "zones": zones,
+        }
+
+    def _road_touching(self, settlement_id: int, cell: Position) -> int | None:
+        for road in self._roads.values():
+            if road.settlement_id != settlement_id:
+                continue
+            if cell in road.cells or any(
+                self._is_adjacent(cell, existing) for existing in road.cells
+            ):
+                return road.id
+        return None
+
+    def _is_adjacent(self, first: Position, second: Position) -> bool:
+        return (
+            abs(first.x - second.x) + abs(first.y - second.y) == 1
+        )
+
+    def _is_adjacent_to_structure(self, actor_id: int, structure_id: int) -> bool:
+        position = self._entities.get(actor_id)
+        structure = self._structures.get(structure_id)
+        if position is None or structure is None:
+            return False
+        return any(
+            self._is_adjacent(position, self._objects[object_id].position)
+            for object_id in structure.components
+            if self._objects.get(object_id) and self._objects[object_id].position is not None
+        )
+
+    def _is_adjacent_to_object(self, actor_id: int, position: Position) -> bool:
+        mine = self._entities.get(actor_id)
+        return mine is not None and self._is_adjacent(mine, position)
+
+    def _beside_storage(self, actor_id: int, settlement: Settlement) -> bool:
+        return any(
+            self._is_adjacent_to_structure(actor_id, structure_id)
+            for structure_id in settlement.storage_ids
+        )
+
+    def _structure_center(self, structure_id: int) -> Position:
+        structure = self._structures.get(structure_id)
+        positions = [
+            self._objects[object_id].position
+            for object_id in structure.components
+            if self._objects.get(object_id) and self._objects[object_id].position is not None
+        ]
+        if not positions:  # pragma: no cover - structures hold placed blocks
+            return Position(0, 0)
+        return Position(
+            round(sum(p.x for p in positions) / len(positions)),
+            round(sum(p.y for p in positions) / len(positions)),
+        )
+
+    def _distance(self, first: Position, second: Position) -> int:
+        return abs(first.x - second.x) + abs(first.y - second.y)
 
     def __repr__(self) -> str:
         return (

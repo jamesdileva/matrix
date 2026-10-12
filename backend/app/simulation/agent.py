@@ -206,6 +206,11 @@ class Agent:
                 "patterns": world.known_patterns(self.agent_id),
             },
             "carried": world.carried_objects(self.agent_id),
+            # Settlement (S30): the community this agent belongs to —
+            # its name, the shared storage it can draw on, the zones it
+            # holds. None for everyone outside; a home you cannot see
+            # is not a home.
+            "settlement": world.settlement_view(self.agent_id),
         }
 
     def decide(self) -> dict:

@@ -184,6 +184,35 @@ export function AgentInspector({ worldId, agentId, onClose, onSelectAgent }: Pro
         />
       </Block>
 
+      <Block title="settlement">
+        {detail.settlement ? (
+          <>
+            <Row
+              label="home"
+              value={`${detail.settlement.name} (${detail.settlement.role})`}
+            />
+            <Row
+              label="shared"
+              value={
+                Object.entries(detail.settlement.contents)
+                  .map(([kind, amount]) => `${amount} ${kind}`)
+                  .join(", ") || "empty"
+              }
+            />
+            <Row
+              label="zones"
+              value={
+                detail.settlement.zones
+                  .map((zone) => `${zone.resource} @${zone.object_id}`)
+                  .join(", ") || "—"
+              }
+            />
+          </>
+        ) : (
+          <span style={{ fontSize: "0.68rem", color: colors.dim }}>no settlement</span>
+        )}
+      </Block>
+
       <Block title="memory">
         <ol style={{ listStyle: "none", margin: 0, padding: 0, fontSize: "0.68rem", display: "flex", flexDirection: "column", gap: "0.15rem", maxHeight: 140, overflowY: "auto" }}>
           {detail.memory.length === 0 && <li style={{ color: colors.dim }}>empty</li>}

@@ -2325,4 +2325,81 @@ technology as territory.
 
 ### Commits
 - `f675244` — S29: technology and cultural objects — recipes, patterns, tools, inventions, cumulative culture [pushed]
+- `c0917da` — worklog: record S29 commit hash [pushed]
+
+---
+
+## S30 — Settlements (in progress)
+
+### Scope (2026-10-09)
+In: `app/simulation/settlement.py` — the Settlement and Road data
+(homes, shared storage, roads, zones), the world's settlement
+registry; the `settle` / `join` / `adopt` / `deposit` / `withdraw`
+/ `pave` / `claim_zone` / `release_zone` actions with
+`SETTLEMENT_FOUNDED` / `JOINED` / `GROWN` / `STORAGE` /
+`ROAD_LAID` / `ZONE_CLAIMED` events; the settlement block in
+observations (members see their settlement's storage and zones);
+auto-adoption when a member builds inside a settlement's extent;
+resource zones as the Void's first property rule (a claimed grove
+refuses outsiders); the settlement experiment — a population
+constructing and *maintaining* a small settlement; API routes, a
+console settlements panel, client labels, tests.
+Out: settlement persistence across server restarts, decay and repair
+of structures, raiding and territory conflict, settlement-wide
+knowledge bookkeeping beyond the S29 inheritance.
+
+### Implementation
+- `app/simulation/settlement.py`: the `Settlement` (identity, founder,
+  population, members with roles, homes, storehouses, roads, zones,
+  the shared ledger) and `Road` (paved cells that block nothing) data.
+- `World`: the settlement registry plus founding (`settle`), joining
+  along the S27 population boundary (`join_settlement`), adoption by
+  claim (`adopt`) and by building inside the extent
+  (`maybe_adopt` — a member raising a structure inside the
+  settlement's radius grows it without being told), the shared ledger
+  (`deposit`/`withdraw`, only beside the storehouse), roads (`pave`,
+  joining touching paths into one), and resource zones (`claim_zone`/
+  `release_zone`). A claimed source refuses outsiders with
+  `claimed_by` — the Void's first property rule. All six events ride
+  the timeline.
+- Observations carry a `settlement` block for members (name, role,
+  contents, zones) — `None` for outsiders. `Position` moved to
+  `app/simulation/geometry.py` so the world and the settlement data
+  share it without a cycle (re-exported unchanged from `world`).
+- `app/experiments/settlement.py`: the construct-and-maintain
+  scenario — the founder raises a home, names the place, builds the
+  storehouse, claims the grove, paves the road, and banks it; the
+  neighbour joins, waits for the stock, draws, and raises a second
+  home the settlement adopts on the spot. Runner is provider-ready:
+  model mode runs the identical lot through ModelPolicies.
+- API: `GET /worlds/{id}/settlements` and per-settlement detail
+  (members with roles, homes, roads with cells, zones, contents);
+  the agent detail carries the settlement view. Console: a
+  settlements panel and the inspector's settlement block; event
+  labels console-side and in the Godot client.
+
+### Verification
+- Tests: pytest **501 passed, 30 new** (founding with name/founder/
+  home; settling beside without an id; unique names; one-settlement
+  membership; joining along population lines and all refusals; shared
+  banking and drawing with balance; empty-purse refusals; claimed
+  groves refusing outsiders by name with nothing taken; members
+  gathering freely; releases; non-holders refused; walkable recorded
+  roads that join into one path; roads staying inside the extent;
+  auto-adoption and storehouse classification; member observations vs
+  outsider silence; the full construct-and-maintain scenario;
+  determinism; unknown modes; model mode through the mock seam; the
+  completed experiment row; and the API — settle/join through the
+  injection route, the settlements list and detail, 404s).
+- Live (dev DB): **members [1, 2], homes 2, storage 1, roads 1
+  (5 cells), zones 1, contents 4, deposits 3, withdrawals 4** — the
+  village stands and the stock survives its own use.
+- Live (dev API, world 107): settle, join, build, deposit, withdraw,
+  pave, the settlements list and detail — a real population
+  inhabiting a real world through the public API.
+- Roadmap S30 checklist: a population constructs and maintains a
+  small settlement ✅. The Void begins to look inhabited ✅.
+
+### Commits
+- (pending — not yet committed at time of writing)
 

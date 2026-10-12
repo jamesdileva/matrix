@@ -93,6 +93,8 @@ export type AgentDetail = {
     patterns: string[];
     carried: { id: number; type: string; properties: Record<string, unknown> }[];
   };
+  // S30: the community this agent belongs to, or null.
+  settlement: AgentSettlement;
 };
 
 export type Drift = {
@@ -182,6 +184,46 @@ export type Relationships = {
   relationships: Relationship[];
 };
 
+export type SettlementStats = {
+  id: number;
+  name: string;
+  founder_id: number;
+  population_id: number | null;
+  founded_tick: number;
+  center: { x: number; y: number };
+  members: number[];
+  home_ids: number[];
+  storage_ids: number[];
+  road_ids: number[];
+  zones: { object_id: number; resource: string; position: { x: number; y: number } | null }[];
+  storage: Record<string, number>;
+  homes: number;
+  storage_structures: number;
+  roads: number;
+  road_cells: { x: number; y: number }[];
+  members_with_roles: { agent_id: number; role: string }[];
+  contents: Record<string, number>;
+  age_ticks: number;
+};
+
+export type Settlements = {
+  world_id: number;
+  settlements: SettlementStats[];
+};
+
+export type AgentSettlement = {
+  id: number;
+  name: string;
+  role: string;
+  population_id: number | null;
+  members: number[];
+  homes: number;
+  storage: number;
+  roads: number;
+  contents: Record<string, number>;
+  zones: { object_id: number; resource: string; position: { x: number; y: number } | null }[];
+} | null;
+
 export type Participant = {
   world_id: number;
   participant: { entity_id: number; position: { x: number; y: number } } | null;
@@ -238,6 +280,11 @@ export const api = {
     }>,
   relationships: (id: number, agentId: number) =>
     request<Relationships>(`/api/worlds/${id}/agents/${agentId}/relationships`),
+  settlements: (id: number) => request<Settlements>(`/api/worlds/${id}/settlements`),
+  settlement: (id: number, settlementId: number) =>
+    request<{ world_id: number; settlement: SettlementStats }>(
+      `/api/worlds/${id}/settlements/${settlementId}`,
+    ),
   participant: (id: number) => request<Participant>(`/api/worlds/${id}/participant`),
   participantJoin: (id: number) =>
     post(`/api/worlds/${id}/participant/join`) as unknown as Promise<Participant & { joined: boolean }>,

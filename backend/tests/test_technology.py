@@ -1,8 +1,8 @@
-"""S29 — technology and cultural objects: recipes, patterns, tools,
+"""S29 â€” technology and cultural objects: recipes, patterns, tools,
 inventions, and the cumulative-culture verification.
 
-The roadmap's check — "an agent discovers an object/recipe and a
-descendant can use it" — is the last test class; everything before it
+The roadmap's check â€” "an agent discovers an object/recipe and a
+descendant can use it" â€” is the last test class; everything before it
 is the machinery that check rests on.
 """
 
@@ -18,7 +18,7 @@ from app.experiments.technology import (
     ANCHOR,
     HeirPolicy,
     InventorPolicy,
-    _pattern_script,
+    pattern_script,
     run_cumulative_culture,
 )
 from app.host import WorldRegistry
@@ -368,7 +368,7 @@ class TestCumulativeInheritance:
 class TestPatternScript:
     def test_the_script_lays_every_block_and_never_self_blocks(self):
         pattern = INVENTIONS[("recipe:wood_axe", "recipe:wood_block")]
-        script = _pattern_script((2, 2), ANCHOR, pattern)
+        script = pattern_script((2, 2), ANCHOR, pattern)
 
         builds = [direction for verb, direction in script if verb == "build"]
         assert len(builds) == len(pattern.blocks)
@@ -406,7 +406,7 @@ class TestCumulativeCultureExperiment:
         engine.dispose()
 
     def test_the_roadmap_verification(self, session_factory):
-        """A parent discovers; the descendant uses — culture is cumulative."""
+        """A parent discovers; the descendant uses â€” culture is cumulative."""
         record = run_cumulative_culture(session_factory=session_factory, seed="verify")
 
         parent = record["parent"]

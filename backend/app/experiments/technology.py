@@ -1,4 +1,4 @@
-"""S29 — cumulative culture: a parent's discovery, a descendant's use.
+"""S29 â€” cumulative culture: a parent's discovery, a descendant's use.
 
 One generation discovers (a recipe, a tool, a construction pattern)
 and the next builds with all of it without rediscovering any. The
@@ -10,8 +10,8 @@ and gathers deeper than a tool-less agent can.
 
 The scripted policies are instruments, not minds: they know the
 scenario's own grammar (which recipe name to say, where the pattern
-anchors) because the scenario defines it. The *data* they use — the
-recipes and the pattern — is genuinely inherited, which is the point.
+anchors) because the scenario defines it. The *data* they use â€” the
+recipes and the pattern â€” is genuinely inherited, which is the point.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ ANCHOR = (10, 10)  # where the invented pattern stands
 class InventorPolicy:
     """The parent's script: discover, craft, invent, bequeath.
 
-    The route is the scenario's own vocabulary — the parent needs
+    The route is the scenario's own vocabulary â€” the parent needs
     three discoveries (door, axe, wall), then crafts the axe, then
     combines the axe and the wall into the shelter-ring pattern. It
     also declares what it hands its child, through the decision
@@ -104,14 +104,14 @@ class HeirPolicy:
     It crafts the axe from the recipe it was born knowing (never
     discovering), gathers with it beside its home tree, then builds the
     inherited pattern around the anchor by walking the ring's outside
-    — the safe route S19's house builder uses, driven by the pattern's
+    â€” the safe route S19's house builder uses, driven by the pattern's
     *data* rather than a hand-written shape.
     """
 
     def __init__(
         self, pattern: Pattern, anchor: tuple[int, int], start: tuple[int, int]
     ) -> None:
-        self.script = _pattern_script(start, anchor, pattern)
+        self.script = pattern_script(start, anchor, pattern)
         self.crafts = 0
         self.blocks_built = 0
         self.tool_yield = 0
@@ -164,14 +164,14 @@ class HeirPolicy:
         return {"action": {"action": "move", "direction": direction}}
 
 
-def _pattern_script(
+def pattern_script(
     start: tuple[int, int], anchor: tuple[int, int], pattern: Pattern
 ) -> list[tuple[str, str]]:
     """A move/build script laying a pattern by walking its outside.
 
     Blocks are laid clockwise (the pattern's own data order), each
     built from the stand cell outside it, and the walk between stands
-    turns the *outer* corner — so on a cleared lot the route never
+    turns the *outer* corner â€” so on a cleared lot the route never
     crosses a block the builder has already laid. The builder starts
     at ``start``.
     """
@@ -336,7 +336,7 @@ def run_cumulative_culture(
     # The descendant's tool yield is what its own gather gained (the
     # policy measured it beside the home tree, before it walked to
     # the site); a post-build gather would be measuring the wrong
-    # thing — distance, not tools.
+    # thing â€” distance, not tools.
     child_tool_yield = getattr(child_policy, "tool_yield", 0)
 
     record = {

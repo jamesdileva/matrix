@@ -367,6 +367,36 @@ discoverer is born knowing its parent's recipes and patterns and can
 use them without rediscovery. The first tool pays for itself — an
 axe doubles a gather.
 
+## Settlements (S30+)
+
+```bash
+cd backend
+.venv/Scripts/python -m app.experiments.settlement    # construct and maintain a village
+```
+
+```bash
+# found a settlement on the structure beside you, then join it
+curl -s -X POST localhost:8000/api/worlds/1/actions -H "Content-Type: application/json" \
+  -d '{"agent_id": 1, "action": {"action": "settle", "name": "First Hollow"}}'
+curl -s -X POST localhost:8000/api/worlds/1/actions -H "Content-Type: application/json" \
+  -d '{"agent_id": 2, "action": {"action": "join_settlement", "settlement_id": 1}}'
+# bank into the shared storehouse, claim the grove, pave the road
+curl -s -X POST localhost:8000/api/worlds/1/actions -H "Content-Type: application/json" \
+  -d '{"agent_id": 1, "action": {"action": "deposit", "resource": "wood", "amount": 3}}'
+curl -s -X POST localhost:8000/api/worlds/1/actions -H "Content-Type: application/json" \
+  -d '{"agent_id": 1, "action": {"action": "claim_zone", "resource": "wood", "target": 7}}'
+curl -s -X POST localhost:8000/api/worlds/1/actions -H "Content-Type: application/json" \
+  -d '{"agent_id": 1, "action": {"action": "pave", "direction": "east"}}'
+# what stands in the world
+curl -s localhost:8000/api/worlds/1/settlements
+```
+
+`adopt` claims a standing structure; `withdraw` draws from the shared
+stock; `release_zone` lets a grove go. A member building inside the
+settlement's extent grows it without asking; a claimed grove refuses
+outsiders. Members see their settlement — its storage, zones and
+people — in every observation.
+
 ## Lineage experiment (S11+)
 
 ```bash

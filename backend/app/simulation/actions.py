@@ -77,6 +77,14 @@ HANDLERS = {
     "discover": "_discover",
     "craft": "_craft",
     "invent": "_invent",
+    "settle": "_settle",
+    "join_settlement": "_join_settlement",
+    "adopt": "_adopt",
+    "deposit": "_deposit",
+    "withdraw": "_withdraw",
+    "pave": "_pave",
+    "claim_zone": "_claim_zone",
+    "release_zone": "_release_zone",
     "give": "_give",
     "take": "_take",
     "trade": "_trade",
@@ -154,6 +162,15 @@ def _gather(world: World, actor_id, action: dict) -> dict:
         quantity = obj.properties.get("quantity", 0)
         if not isinstance(quantity, int) or quantity <= 0:
             continue
+        # A claimed source refuses outsiders (S30): the Void's first
+        # property rule. Members of the holding settlement gather
+        # freely; everyone else is told whose it is.
+        claimer = world.zone_claimer(obj.id)
+        if claimer is not None and not world.is_settlement_member(actor_id, claimer):
+            raise _Rejected(
+                "claimed_by",
+                {"settlement_id": claimer, "object_id": obj.id},
+            )
         obj.properties["quantity"] = quantity - amount
         world.credit_resource(actor_id, resource, amount)
         depleted = False
@@ -230,6 +247,9 @@ def _build(world: World, actor_id, action: dict) -> dict:
         created_by_agent_id=actor_id,
     )
     world.add_to_structure(structure_id, obj.id)
+    # S30: a member raising a structure inside its settlement's extent
+    # grows the settlement on the spot.
+    world.maybe_adopt(actor_id, structure_id)
     return {
         "block": block_type,
         "object_id": obj.id,
@@ -451,6 +471,146 @@ def _invent(world: World, actor_id, action: dict) -> dict:
         "invented": already,
         "kind": "recipe" if isinstance(result, Recipe) else "pattern",
     }
+
+
+# ----------------------------------------------------------------------
+# Settlements (S30)
+# ----------------------------------------------------------------------
+
+
+def _settlement(world: World, actor_id, action: dict):
+    """The settlement named by an action, which the actor must belong to.
+
+    Naming one's own settlement is optional — an agent banking wood
+    into its own village's storehouse should not have to say its id.
+    """
+    _require_actor(world, actor_id)
+    settlement_id = action.get("settlement_id")
+    if settlement_id is None:
+        settlement = world.settlement_of(actor_id)
+        if settlement is None:
+            raise _Rejected("no_settlement", {})
+        return settlement
+    if not isinstance(settlement_id, int) or isinstance(settlement_id, bool):
+        raise _Rejected("invalid_settlement", {"settlement": settlement_id})
+    settlement = world.settlement(settlement_id)
+    if settlement is None:
+        raise _Rejected("unknown_settlement", {"settlement": settlement_id})
+    if not settlement.is_member(actor_id):
+        raise _Rejected(
+            "not_a_member", {"settlement": settlement.name, "settlement": settlement_id}
+        )
+    return settlement
+
+
+def _call(world: World, actor_id, action: dict, method: str, **kwargs):
+    """Run a settlement method, turning its rule violations into rejections."""
+    settlement = _settlement(world, actor_id, action)
+    try:
+        return getattr(world, method)(actor_id, settlement.id, **kwargs)
+    except ValueError as exc:
+        raise _Rejected("refused", {"detail": str(exc), "settlement": settlement.name})
+
+
+def _settle(world: World, actor_id, action: dict) -> dict:
+    """Found a settlement on a standing structure (S30).
+
+    The structure defaults to one beside the actor. A name is the
+    settlement's identity — the world's first proper noun spoken by a
+    builder, not a scenario author.
+    """
+    _require_actor(world, actor_id)
+    name = action.get("name")
+    structure_id = action.get("structure")
+    if structure_id is None:
+        position = world.entity_position(actor_id)
+        for settlement_structure in world.structures():
+            if world._is_adjacent_to_structure(actor_id, settlement_structure.id):
+                structure_id = settlement_structure.id
+                break
+    if not isinstance(name, str) or not name.strip():
+        raise _Rejected("invalid_name", {"name": name})
+    try:
+        settlement = world.found_settlement(actor_id, name, structure_id)
+    except ValueError as exc:
+        raise _Rejected("cannot_settle", {"detail": str(exc)})
+    return {
+        "settlement_id": settlement.id,
+        "name": settlement.name,
+        "structure_id": structure_id,
+    }
+
+
+def _join_settlement(world: World, actor_id, action: dict) -> dict:
+    """Join a settlement of your own people (S30)."""
+    _require_actor(world, actor_id)
+    settlement_id = action.get("settlement_id")
+    try:
+        settlement = world.join_settlement(actor_id, settlement_id)
+    except ValueError as exc:
+        raise _Rejected("cannot_join", {"detail": str(exc)})
+    return {"settlement_id": settlement.id, "name": settlement.name}
+
+
+def _adopt(world: World, actor_id, action: dict) -> dict:
+    """Claim a standing structure for your settlement (S30)."""
+    _require_actor(world, actor_id)
+    structure_id = action.get("structure")
+    return _call(
+        world, actor_id, action, "adopt_structure", structure_id=structure_id
+    )
+
+
+def _deposit(world: World, actor_id, action: dict) -> dict:
+    """Bank a resource into the settlement's shared storage (S30)."""
+    _require_actor(world, actor_id)
+    resource = action.get("resource")
+    amount = action.get("amount", 1)
+    return _call(
+        world, actor_id, action, "deposit", resource=resource, amount=amount
+    )
+
+
+def _withdraw(world: World, actor_id, action: dict) -> dict:
+    """Draw a resource back out of the shared storage (S30)."""
+    _require_actor(world, actor_id)
+    resource = action.get("resource")
+    amount = action.get("amount", 1)
+    return _call(
+        world, actor_id, action, "withdraw", resource=resource, amount=amount
+    )
+
+
+def _pave(world: World, actor_id, action: dict) -> dict:
+    """Lay road cells (S30): a path you can still walk."""
+    _require_actor(world, actor_id)
+    cells = action.get("cells")
+    if cells is None:
+        direction = action.get("direction")
+        position = world.entity_position(actor_id)
+        if direction in DIRECTIONS:
+            dx, dy = DIRECTIONS[direction]
+            cells = [{"x": position.x + dx, "y": position.y + dy}]
+        else:
+            raise _Rejected("invalid_direction", {"direction": direction})
+    return _call(world, actor_id, action, "pave", cells=cells)
+
+
+def _claim_zone(world: World, actor_id, action: dict) -> dict:
+    """Claim a resource source for your settlement (S30)."""
+    _require_actor(world, actor_id)
+    resource = action.get("resource")
+    object_id = action.get("target", action.get("object_id"))
+    return _call(
+        world, actor_id, action, "claim_zone", resource=resource, object_id=object_id
+    )
+
+
+def _release_zone(world: World, actor_id, action: dict) -> dict:
+    """Let a claimed source go (S30)."""
+    _require_actor(world, actor_id)
+    object_id = action.get("target", action.get("object_id"))
+    return _call(world, actor_id, action, "release_zone", object_id=object_id)
 
 
 # ----------------------------------------------------------------------

@@ -270,6 +270,8 @@ def get_agent(world_id: int, agent_id: int, request: Request) -> dict:
             "knowledge": agent.knowledge,
             "cultural_artifacts": agent.cultural_artifacts,
         },
+        # S30: the community this agent belongs to (or None).
+        "settlement": host.engine.world.settlement_view(agent.agent_id),
     }
 
 
@@ -662,3 +664,57 @@ def get_technology(world_id: int, request: Request) -> dict:
         "patterns": [pattern.to_dict() for pattern in world.patterns.values()],
         "inventions": inventions,
     }
+
+
+def _settlement_stats(world, settlement) -> dict:
+    """One settlement's statistics for the API (S30)."""
+    zones = []
+    for object_id, resource in settlement.zones.items():
+        obj = world.get_object(object_id)
+        zones.append(
+            {
+                "object_id": object_id,
+                "resource": resource,
+                "position": obj.position.to_dict() if obj and obj.position else None,
+            }
+        )
+    roads = [road for road in world.roads if road.settlement_id == settlement.id]
+    return {
+        **settlement.to_dict(),
+        "homes": len(settlement.home_ids),
+        "storage": len(settlement.storage_ids),
+        "roads": len(roads),
+        "road_cells": [cell.to_dict() for road in roads for cell in road.cells],
+        "members_with_roles": [
+            {"agent_id": agent_id, "role": settlement.role_of(agent_id)}
+            for agent_id in sorted(settlement.members)
+        ],
+        "zones": zones,
+        "contents": dict(settlement.storage),
+        "age_ticks": world.tick - settlement.founded_tick,
+    }
+
+
+@router.get("/worlds/{world_id}/settlements")
+def list_settlements(world_id: int, request: Request) -> dict:
+    """S30: the world's settlements — the communities standing in it.
+
+    Each carries its identity, members with roles, homes, storehouse,
+    roads, held zones and shared contents.
+    """
+    host = _host(request, world_id)
+    world = host.engine.world
+    return {
+        "world_id": world_id,
+        "settlements": [_settlement_stats(world, s) for s in world.settlements],
+    }
+
+
+@router.get("/worlds/{world_id}/settlements/{settlement_id}")
+def get_settlement(world_id: int, settlement_id: int, request: Request) -> dict:
+    host = _host(request, world_id)
+    world = host.engine.world
+    settlement = world.settlement(settlement_id)
+    if settlement is None:
+        raise HTTPException(status_code=404, detail=f"settlement {settlement_id} not in world {world_id}")
+    return {"world_id": world_id, "settlement": _settlement_stats(world, settlement)}

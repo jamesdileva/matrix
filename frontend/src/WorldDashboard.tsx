@@ -13,6 +13,7 @@ import { EventStream } from "./EventStream";
 import { ParticipantPanel } from "./ParticipantPanel";
 import { PopulationStats } from "./PopulationStats";
 import { PopulationsPanel } from "./PopulationsPanel";
+import { SettlementsPanel } from "./SettlementsPanel";
 import { WorldViewport } from "./WorldViewport";
 import { buttonStyle, colors, headingStyle, panelStyle } from "./theme";
 
@@ -127,6 +128,7 @@ export function WorldDashboard({ worldId, onWorldsChanged }: Props) {
         <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", minWidth: 0 }}>
           <PopulationStats agents={agents} />
           <PopulationsPanel worldId={worldId} />
+          <SettlementsPanel worldId={worldId} />
           <ParticipantPanel worldId={worldId} />
           <Controls
             worldId={worldId}
