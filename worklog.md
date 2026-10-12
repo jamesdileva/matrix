@@ -2486,5 +2486,5 @@ about the rules themselves.
   You can play a game invented by the Flood ✅ (end goal).
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `8a51d22` — S31: games — rules as data with a closed interpreter, sessions, scoring, human play [pushed]
 
