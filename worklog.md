@@ -2402,4 +2402,89 @@ knowledge bookkeeping beyond the S29 inheritance.
 
 ### Commits
 - `cf0ca30` — S30: settlements — homes, shared storage, roads, identity, resource zones [pushed]
+- `de09e33` — worklog: record S30 commit hash [pushed]
+
+---
+
+## S31 — Games (in progress)
+
+### Scope (2026-10-09)
+In: `app/simulation/games.py` — the rules DSL (rules as data: setup,
+named moves with preconditions and effects, win conditions), the
+validator (unknown keys, undeclared state and unplayable rules are
+rejected — the no-code-execution guarantee), the session machine
+(players, round-robin turns, scoring, history, winner); the world's
+game registry with `GAME_PROPOSED` / `GAME_MOVE` / `GAME_OVER`
+events; the `play` action and the observation's games block (your
+turn and your legal moves, so minds can play); the game experiment —
+a scripted designer proposes a valid game and two scripted players
+finish it, and a model mind invents a game for the human through the
+S07 seam; API routes (propose/join/moves/list/detail), the console
+games panel (the human joins and plays), client labels, tests.
+Out: games with hidden information or chance, moves with parameters,
+simultaneous turns, tournaments and rankings, settling disputes
+about the rules themselves.
+
+### Implementation
+- `app/simulation/games.py`: rules as data — `name`, `players`,
+  `setup` (named counters/flags), `moves` (requires + effects), `win`
+  (`first_to` or `most_points_after_rounds`). The closed vocabulary
+  is the sprint's whole point: `validate_rules` refuses unknown keys,
+  undeclared state and games nobody can legally open, with reasons —
+  so anything that passes is playable *by construction* and there is
+  no code in a rule to execute. `GameSession` is the table: seats in
+  join order, round-robin turns, effects applied by the interpreter,
+  score, full history, winner and reason.
+- `World`: the game registry (`propose_game` — validated), tables
+  (`open_session`/`join_session`, seats filling in order then play
+  beginning), and `play_move` — whose turn, what is legal and who won
+  are the interpreter's decisions, never the caller's. `GAME_PROPOSED`
+  / `GAME_STARTED` / `GAME_MOVE` / `GAME_OVER` on the timeline.
+- The `play` action validates seating, turn, move name and legality
+  before the interpreter runs, so a bad play is a rejection with a
+  reason. Observations carry a `games` block — your turn and your
+  legal moves, so minds at the table can play.
+- `app/experiments/game.py`: the calibration (`The Long Road`, played
+  to a recorded winner by two PlayerPolicies) and the roadmap's
+  experiment — `--mode model` asks a mind to invent a game for the
+  human through the S07 seam, validates the proposal, and opens it as
+  a live table; unusable designs fail loudly rather than being
+  sanded smooth.
+- API: propose (400 with reasons when unplayable), open a table,
+  join (the participant takes a seat like any entity), list
+  sessions, one session view (`as_entity` shows your turn), and the
+  moves route — the participant's turn, validated. Console: the
+  games panel (propose rules as JSON, open tables, sit, and play
+  your legal moves when it is your turn); event labels console-side
+  and in the Godot client.
+
+### Verification
+- Tests: pytest **530 passed** (28 new: the calibration game played to
+  a winner in ten recorded moves; a tick plays the whole table; only
+  the seated player moves; refused moves (not your turn, unknown
+  table, unknown move, game over); seats filling in order; full-table
+  and double-seat refusals; the scored variant counting points over
+  rounds; every move on the timeline with its state; the observation
+  showing your turn and moves while a spectator sees nothing; validator
+  classes (unknown key, unknown effect, undeclared state, unopenable
+  game, malformed shapes, non-scalar setups); the experiment's
+  determinism, the designer seam through a stub provider, and loud
+  failure on unusable output; and the API — the human proposing,
+  seating first, seeing their turn and legal moves, playing to a
+  recorded GAME_MOVE, and the unplayable refusal with its reasons).
+- Live (dev DB): the calibration played **10 moves to agent 2**; the
+  model-mode invention failed loudly on a mock that returns decision
+  shapes rather than rules — the honest behaviour for unusable output.
+- Live (dev API, world 108): proposed → table opened → **human seated
+  first** → opponent seated → play began → ten moves →
+  `GAME_OVER`, with GAME_PROPOSED/STARTED/MOVE/OVER all on the
+  timeline. The human played a game against a Flood agent through
+  the public API — the sprint's end goal, demonstrated.
+- Roadmap S31 checklist: agent-created rules represented by the
+  engine and played without arbitrary code execution ✅ (the closed
+  validator is the guarantee, and the live table is the proof).
+  You can play a game invented by the Flood ✅ (end goal).
+
+### Commits
+- (pending — not yet committed at time of writing)
 

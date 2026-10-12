@@ -85,6 +85,7 @@ HANDLERS = {
     "pave": "_pave",
     "claim_zone": "_claim_zone",
     "release_zone": "_release_zone",
+    "play": "_play",
     "give": "_give",
     "take": "_take",
     "trade": "_trade",
@@ -611,6 +612,49 @@ def _release_zone(world: World, actor_id, action: dict) -> dict:
     _require_actor(world, actor_id)
     object_id = action.get("target", action.get("object_id"))
     return _call(world, actor_id, action, "release_zone", object_id=object_id)
+
+
+# ----------------------------------------------------------------------
+# Games (S31)
+# ----------------------------------------------------------------------
+
+
+def _play(world: World, actor_id, action: dict) -> dict:
+    """Play your turn at a table you sit at (S31).
+
+    The interpreter decides everything — whose turn it is, what is
+    legal, who won. A move that is not yours, not legal or not over
+    is a rejection, never a state change.
+    """
+    _require_actor(world, actor_id)
+    session_id = action.get("game", action.get("session_id"))
+    move_name = action.get("move")
+    session = world.session(session_id) if isinstance(session_id, int) else None
+    if session is None:
+        raise _Rejected("unknown_game", {"game": session_id})
+    if not isinstance(move_name, str) or not move_name:
+        raise _Rejected("invalid_move", {"move": move_name})
+    if session.status == "finished":
+        raise _Rejected("game_over", {"game": session_id})
+    if session.status != "playing":
+        raise _Rejected("not_ready", {"game": session_id})
+    if actor_id not in session.players:
+        raise _Rejected("not_a_player", {"game": session_id})
+    if actor_id != session.current_player:
+        raise _Rejected("not_your_turn", {"game": session_id})
+    if move_name not in session.rules["moves"]:
+        raise _Rejected("unknown_move", {"game": session_id, "move": move_name})
+    if move_name not in session.legal_moves(actor_id):
+        raise _Rejected("illegal_move", {"game": session_id, "move": move_name})
+    outcome = world.play_move(session_id, actor_id, move_name)
+    return {
+        "game": session_id,
+        "move": move_name,
+        "state": outcome["state"],
+        "points": outcome["points"],
+        "winner": outcome["winner"],
+        "win_reason": outcome["win_reason"],
+    }
 
 
 # ----------------------------------------------------------------------

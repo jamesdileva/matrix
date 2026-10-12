@@ -211,6 +211,10 @@ class Agent:
             # holds. None for everyone outside; a home you cannot see
             # is not a home.
             "settlement": world.settlement_view(self.agent_id),
+            # Games (S31): the tables this agent sits at — whose turn
+            # it is, what is legal now, the score. A mind that can see
+            # its legal moves can play.
+            "games": world.games_for(self.agent_id),
         }
 
     def decide(self) -> dict:

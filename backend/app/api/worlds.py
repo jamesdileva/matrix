@@ -718,3 +718,114 @@ def get_settlement(world_id: int, settlement_id: int, request: Request) -> dict:
     if settlement is None:
         raise HTTPException(status_code=404, detail=f"settlement {settlement_id} not in world {world_id}")
     return {"world_id": world_id, "settlement": _settlement_stats(world, settlement)}
+
+
+# ----------------------------------------------------------------------
+# Games (S31)
+# ----------------------------------------------------------------------
+
+
+class GameJoinRequest(BaseModel):
+    entity_id: int
+
+
+class GameMoveRequest(BaseModel):
+    move: str
+
+
+def _session_view(world, session, entity_id: int | None = None) -> dict:
+    """One table as a viewer sees it: rules, seats, state, score,
+    history — plus your own turn and legal moves when seated."""
+    view = session.to_dict()
+    view["your_turn"] = entity_id is not None and entity_id == session.current_player
+    view["legal_moves"] = session.legal_moves(entity_id) if entity_id else []
+    return view
+
+
+@router.get("/worlds/{world_id}/games")
+def list_games(world_id: int, request: Request) -> dict:
+    """S31: every game proposed in this world — the rules as data."""
+    return {"world_id": world_id, "games": _host(request, world_id).engine.world.games}
+
+
+@router.post("/worlds/{world_id}/games", status_code=201)
+def propose_game(world_id: int, payload: dict, request: Request) -> dict:
+    """Propose a game: its rules, validated and recorded.
+
+    The body is the rules mapping (name, players, setup, moves, win).
+    Unplayable rules are a 400 with their reasons — the engine only
+    plays data it understands, so the refusal *is* the safety
+    guarantee the sprint's verification asks for.
+    """
+    host = _host(request, world_id)
+    try:
+        game = host.engine.world.propose_game(None, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"world_id": world_id, "game": game}
+
+
+@router.post("/worlds/{world_id}/games/{game_id}/sessions", status_code=201)
+def open_game_session(world_id: int, game_id: int, request: Request) -> dict:
+    """Open a table for a proposed game: seats may be taken from now."""
+    host = _host(request, world_id)
+    world = host.engine.world
+    try:
+        session = world.open_session(game_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"world_id": world_id, "session": _session_view(world, session)}
+
+
+@router.get("/worlds/{world_id}/games/sessions")
+def list_game_sessions(world_id: int, request: Request) -> dict:
+    """S31: every table in this world — an open one may still take a seat."""
+    return {
+        "world_id": world_id,
+        "sessions": [_session_view(_host(request, world_id).engine.world, s) for s in _host(request, world_id).engine.world.sessions],
+    }
+
+
+@router.get("/worlds/{world_id}/games/sessions/{session_id}")
+def get_game_session(world_id: int, session_id: int, request: Request, as_entity: int | None = None) -> dict:
+    """One table; ``as_entity`` (the participant's id) sees its turn."""
+    world = _host(request, world_id).engine.world
+    session = world.session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"session {session_id} not in world {world_id}")
+    return {"world_id": world_id, "session": _session_view(world, session, as_entity)}
+
+
+@router.post("/worlds/{world_id}/games/sessions/{session_id}/join", status_code=201)
+def join_game(world_id: int, session_id: int, payload: GameJoinRequest, request: Request) -> dict:
+    """Take a seat — the participant, or any entity id in the world."""
+    host = _host(request, world_id)
+    world = host.engine.world
+    try:
+        session = world.join_session(session_id, payload.entity_id)
+    except ValueError as exc:
+        detail = str(exc)
+        if "unknown session" in detail:
+            raise HTTPException(status_code=404, detail=detail) from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
+    return {"world_id": world_id, "session": _session_view(world, session, payload.entity_id)}
+
+
+@router.post("/worlds/{world_id}/games/sessions/{session_id}/moves", status_code=201)
+def play_game_move(world_id: int, session_id: int, payload: GameMoveRequest, request: Request) -> dict:
+    """Play a move at a table. The interpreter decides; the timeline
+    records the move and, if it ended there, the winner."""
+    host = _host(request, world_id)
+    world = host.engine.world
+    session = world.session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"session {session_id} not in world {world_id}")
+    participant = host.participant
+    entity_id = participant["entity_id"] if participant else None
+    if entity_id is None or entity_id not in session.players:
+        raise HTTPException(status_code=409, detail="the participant is not seated at this table")
+    try:
+        outcome = world.play_move(session_id, entity_id, payload.move)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"world_id": world_id, "session": _session_view(world, session, entity_id), "move": outcome}

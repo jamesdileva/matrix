@@ -7,9 +7,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AgentInspector } from "./AgentInspector";
 import { api } from "./api";
-import type { AgentSummary, WorldEvent, WorldState } from "./api";
+import type { AgentSummary, Participant, WorldEvent, WorldState } from "./api";
 import { Controls } from "./Controls";
 import { EventStream } from "./EventStream";
+import { GamesPanel } from "./GamesPanel";
 import { ParticipantPanel } from "./ParticipantPanel";
 import { PopulationStats } from "./PopulationStats";
 import { PopulationsPanel } from "./PopulationsPanel";
@@ -26,6 +27,7 @@ export function WorldDashboard({ worldId, onWorldsChanged }: Props) {
   const [state, setState] = useState<WorldState | null>(null);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [events, setEvents] = useState<WorldEvent[]>([]);
+  const [participant, setParticipant] = useState<Participant | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const sinceId = useRef(0);
@@ -33,12 +35,14 @@ export function WorldDashboard({ worldId, onWorldsChanged }: Props) {
 
   const refreshState = useCallback(async () => {
     try {
-      const [nextState, nextAgents] = await Promise.all([
+      const [nextState, nextAgents, nextParticipant] = await Promise.all([
         api.world(worldId),
         api.agents(worldId),
+        api.participant(worldId).catch(() => null),
       ]);
       setState(nextState);
       setAgents(nextAgents.agents);
+      setParticipant(nextParticipant);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -129,6 +133,7 @@ export function WorldDashboard({ worldId, onWorldsChanged }: Props) {
           <PopulationStats agents={agents} />
           <PopulationsPanel worldId={worldId} />
           <SettlementsPanel worldId={worldId} />
+          <GamesPanel worldId={worldId} participant={participant} />
           <ParticipantPanel worldId={worldId} />
           <Controls
             worldId={worldId}

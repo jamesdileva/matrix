@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 from app.simulation.bus import EventBus
 from app.simulation.errors import CellOccupiedError, InvalidPositionError
 from app.simulation.events import Event, EventTypes
+from app.simulation.games import GameSession, validate_rules
 from app.simulation.geometry import Position
 from app.simulation.technology import (
     BASE_RECIPES,
@@ -227,6 +228,11 @@ class World:
         self._zones: dict[int, int] = {}
         self._next_settlement_id = 1
         self._next_road_id = 1
+        # Games (S31): proposed rules and the tables playing them.
+        self._games: dict[int, dict] = {}
+        self._sessions: dict[int, GameSession] = {}
+        self._next_game_id = 1
+        self._next_session_id = 1
         # Teams (S25): team id -> member entity ids. Shared
         # observations list teammates by team, not by population.
         self._teams: dict[int, set[int]] = {}
@@ -1642,6 +1648,153 @@ class World:
 
     def _distance(self, first: Position, second: Position) -> int:
         return abs(first.x - second.x) + abs(first.y - second.y)
+
+    # ------------------------------------------------------------------
+    # Games (S31)
+    # ------------------------------------------------------------------
+
+    @property
+    def games(self) -> list[dict]:
+        """Every proposed game, in proposal order."""
+        return [self._games[i] for i in sorted(self._games)]
+
+    @property
+    def sessions(self) -> list[GameSession]:
+        """Every table, in opening order."""
+        return [self._sessions[i] for i in sorted(self._sessions)]
+
+    def session(self, session_id: int) -> GameSession | None:
+        return self._sessions.get(session_id)
+
+    def propose_game(self, inventor_id: int | None, rules: dict) -> dict:
+        """Put a game's rules on the table: validated data, never code.
+
+        The validator is the gate — unknown keys, undeclared state and
+        unopenable games are refused with their reasons, so whatever
+        passes is playable by construction. The inventor is whoever
+        proposed it: an agent, the participant, or nobody (the operator).
+        """
+        errors = validate_rules(rules)
+        if errors:
+            raise ValueError(f"unplayable rules: {'; '.join(errors)}")
+        game = {
+            "id": self._next_game_id,
+            "name": rules["name"],
+            "rules": {**rules, "setup": dict(rules["setup"])},
+            "inventor_id": inventor_id,
+            "proposed_tick": self.tick,
+        }
+        self._next_game_id += 1
+        self._games[game["id"]] = game
+        self._add_event(
+            EventTypes.GAME_PROPOSED,
+            actor_id=inventor_id,
+            payload={
+                "game_id": game["id"],
+                "name": game["name"],
+                "players": rules["players"],
+            },
+        )
+        return game
+
+    def open_session(self, game_id: int) -> GameSession:
+        """Open a table for a proposed game; players join after."""
+        game = self._games.get(game_id)
+        if game is None:
+            raise ValueError(f"unknown game {game_id!r}")
+        session = GameSession(
+            id=self._next_session_id,
+            name=game["name"],
+            rules={**game["rules"], "setup": dict(game["rules"]["setup"])},
+            state=dict(game["rules"]["setup"]),
+        )
+        self._next_session_id += 1
+        self._sessions[session.id] = session
+        return session
+
+    def join_session(self, session_id: int, entity_id: int) -> GameSession:
+        """Take a seat: the table fills in join order, then play begins."""
+        session = self._sessions.get(session_id)
+        if session is None:
+            raise ValueError(f"unknown session {session_id!r}")
+        if entity_id not in self._entities:
+            raise ValueError(f"unknown entity {entity_id!r}")
+        if entity_id in session.players:
+            raise ValueError(f"entity {entity_id} already sits at game {session.id}")
+        # Capacity before status: a full table that has already begun
+        # says "no open seat" rather than "already playing" — the seat
+        # is what the joiner is asking about.
+        if len(session.players) >= session.seats:
+            raise ValueError(f"game {session.id} has no open seat")
+        if session.status != "open":
+            raise ValueError(f"game {session.id} is already {session.status}")
+        session.players.append(entity_id)
+        session.points.setdefault(entity_id, 0)
+        if len(session.players) >= session.seats:
+            session.status = "playing"
+            self._add_event(
+                EventTypes.GAME_STARTED,
+                payload={
+                    "session_id": session.id,
+                    "name": session.name,
+                    "players": list(session.players),
+                },
+            )
+        return session
+
+    def play_move(self, session_id: int, entity_id: int, move_name: str) -> dict:
+        """Play a move: the interpreter's decision, recorded either way
+        the turn goes."""
+        session = self._sessions.get(session_id)
+        if session is None:
+            raise ValueError(f"unknown session {session_id!r}")
+        outcome = session.play(entity_id, move_name, self.tick)
+        self._add_event(
+            EventTypes.GAME_MOVE,
+            actor_id=entity_id,
+            payload={
+                "session_id": session.id,
+                "name": session.name,
+                "move": move_name,
+                "state": dict(outcome["state"]),
+            },
+        )
+        if outcome["winner"] is not None:
+            self._add_event(
+                EventTypes.GAME_OVER,
+                actor_id=outcome["winner"],
+                payload={
+                    "session_id": session.id,
+                    "name": session.name,
+                    "winner": outcome["winner"],
+                    "win_reason": outcome["win_reason"],
+                    "points": dict(outcome["points"]),
+                },
+            )
+        return outcome
+
+    def games_for(self, entity_id: int) -> list[dict]:
+        """The tables this entity sits at, as a player sees them: whose
+        turn it is, what is legal now, the score, and who won."""
+        view = []
+        for session in self.sessions:
+            if entity_id not in session.players:
+                continue
+            view.append(
+                {
+                    "session_id": session.id,
+                    "name": session.name,
+                    "status": session.status,
+                    "your_turn": session.current_player == entity_id,
+                    "legal_moves": session.legal_moves(entity_id),
+                    "state": dict(session.state),
+                    "points": dict(session.points),
+                    "players": list(session.players),
+                    "winner": session.winner,
+                    "win_reason": session.win_reason,
+                }
+            )
+        return view
 
     def __repr__(self) -> str:
         return (

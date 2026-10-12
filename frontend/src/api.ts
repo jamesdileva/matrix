@@ -211,6 +211,35 @@ export type Settlements = {
   settlements: SettlementStats[];
 };
 
+export type GameSession = {
+  id: number;
+  name: string;
+  rules: {
+    name: string;
+    description?: string;
+    players: number;
+    setup: Record<string, number | string | boolean>;
+    moves: Record<string, { description?: string; requires?: Record<string, unknown>; effect?: Record<string, unknown> }>;
+    win: Record<string, unknown>;
+  };
+  players: number[];
+  state: Record<string, number | string | boolean>;
+  points: Record<number, number>;
+  current_player: number | null;
+  rounds_completed: number;
+  status: "open" | "playing" | "finished";
+  winner: number | null;
+  win_reason: string | null;
+  history: { tick: number; player: number; move: string }[];
+  your_turn: boolean;
+  legal_moves: string[];
+};
+
+export type GameSessions = {
+  world_id: number;
+  sessions: GameSession[];
+};
+
 export type AgentSettlement = {
   id: number;
   name: string;
@@ -285,6 +314,35 @@ export const api = {
     request<{ world_id: number; settlement: SettlementStats }>(
       `/api/worlds/${id}/settlements/${settlementId}`,
     ),
+  games: (id: number) =>
+    request<{
+      world_id: number;
+      games: { id: number; name: string; rules: GameSession["rules"] }[];
+    }>(`/api/worlds/${id}/games`),
+  proposeGame: (id: number, rules: unknown) =>
+    post(`/api/worlds/${id}/games`, rules) as unknown as Promise<{
+      world_id: number;
+      game: { id: number; name: string };
+    }>,
+  openGame: (id: number, gameId: number) =>
+    post(`/api/worlds/${id}/games/${gameId}/sessions`) as unknown as Promise<{
+      world_id: number;
+      session: GameSession;
+    }>,
+  gameSessions: (id: number) =>
+    request<GameSessions>(`/api/worlds/${id}/games/sessions`),
+  gameSession: (id: number, sessionId: number, asEntity?: number) =>
+    request<{ world_id: number; session: GameSession }>(
+      `/api/worlds/${id}/games/sessions/${sessionId}${asEntity ? `?as_entity=${asEntity}` : ""}`,
+    ),
+  joinGame: (id: number, sessionId: number, entityId: number) =>
+    post(`/api/worlds/${id}/games/sessions/${sessionId}/join`, {
+      entity_id: entityId,
+    }) as unknown as Promise<{ world_id: number; session: GameSession }>,
+  playMove: (id: number, sessionId: number, move: string) =>
+    post(`/api/worlds/${id}/games/sessions/${sessionId}/moves`, {
+      move,
+    }) as unknown as Promise<{ world_id: number; session: GameSession; move: Record<string, unknown> }>,
   participant: (id: number) => request<Participant>(`/api/worlds/${id}/participant`),
   participantJoin: (id: number) =>
     post(`/api/worlds/${id}/participant/join`) as unknown as Promise<Participant & { joined: boolean }>,

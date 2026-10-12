@@ -63,6 +63,12 @@ class EventTypes:
     SETTLEMENT_STORAGE = "SETTLEMENT_STORAGE"
     ROAD_LAID = "ROAD_LAID"
     ZONE_CLAIMED = "ZONE_CLAIMED"
+    # S31: games. A proposed game, a played move and a finished game
+    # are facts too — the table's history is on the timeline.
+    GAME_PROPOSED = "GAME_PROPOSED"
+    GAME_STARTED = "GAME_STARTED"
+    GAME_MOVE = "GAME_MOVE"
+    GAME_OVER = "GAME_OVER"
     # S27: populations. A group coming to be — founded, or a new
     # member arriving under its spawn rule — is a fact too.
     POPULATION_SPAWN = "POPULATION_SPAWN"

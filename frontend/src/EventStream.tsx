@@ -35,6 +35,11 @@ const EVENT_COLORS: Record<string, string> = {
   SETTLEMENT_STORAGE: colors.lineage,
   ROAD_LAID: colors.dim,
   ZONE_CLAIMED: colors.lineage,
+  // S31: games — proposed, played, finished.
+  GAME_PROPOSED: colors.decision,
+  GAME_STARTED: colors.decision,
+  GAME_MOVE: colors.decision,
+  GAME_OVER: colors.accent,
 };
 
 function summarize(event: WorldEvent): string {
@@ -80,6 +85,15 @@ function summarize(event: WorldEvent): string {
     return payload.released
       ? `released object ${String(payload.object_id ?? "?")}`
       : `claimed ${String(payload.resource ?? "?")} @${String(payload.object_id ?? "?")}`;
+  // S31: the game proposed, the move played, the game won.
+  if (type === "GAME_PROPOSED")
+    return `proposed ${String(payload.name ?? "?")} for ${String(payload.players ?? "?")} players`;
+  if (type === "GAME_STARTED")
+    return `players ${(payload.players as number[] | undefined)?.join(", ") ?? "?"} seated`;
+  if (type === "GAME_MOVE")
+    return `played ${String(payload.move ?? "?")} — ${JSON.stringify(payload.state ?? {})}`;
+  if (type === "GAME_OVER")
+    return `${String(payload.winner ?? "?")} wins (${String(payload.win_reason ?? "?")})`;
   if (type === "AGENT_BORN") {
     return `gen ${String(payload.generation)} child of ${String(payload.parent_id)}`;
   }

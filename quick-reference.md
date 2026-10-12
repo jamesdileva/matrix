@@ -397,6 +397,39 @@ settlement's extent grows it without asking; a claimed grove refuses
 outsiders. Members see their settlement — its storage, zones and
 people — in every observation.
 
+## Games (S31+)
+
+```bash
+cd backend
+.venv/Scripts/python -m app.experiments.game                       # the calibration, played to a winner
+.venv/Scripts/python -m app.experiments.game --mode model          # a model mind invents a game for the human
+```
+
+```bash
+# propose rules (validated data — never code), open a table, take a seat
+curl -s -X POST localhost:8000/api/worlds/1/games -H "Content-Type: application/json" \
+  -d '{"name":"Stride Race","players":2,"setup":{"track":0},
+       "moves":{"stride":{"requires":{"track":"<8"},"effect":{"add":{"track":1}}}},
+       "win":{"first_to":{"track":8}}}'
+curl -s -X POST localhost:8000/api/worlds/1/games/1/sessions        # open the table
+curl -s -X POST localhost:8000/api/worlds/1/participant/join        # the human joins the world
+curl -s -X POST localhost:8000/api/worlds/1/games/sessions/1/join \
+  -H "Content-Type: application/json" -d '{"entity_id":1001}'       # and takes the first seat
+# the human's turn (the participant is seated)
+curl -s -X POST localhost:8000/api/worlds/1/games/sessions/1/moves \
+  -H "Content-Type: application/json" -d '{"move":"stride"}'
+curl -s "localhost:8000/api/worlds/1/games/sessions/1?as_entity=1001"   # your turn and legal moves
+```
+
+Rules are data with a closed vocabulary: named counters in
+`setup`, moves with `requires` (comparisons like `"<8"`) and
+`effect`s (`add`/`set`/`award`/`again`), and a `win` of `first_to`
+or `most_points_after_rounds`. Anything the engine does not
+understand — an unknown key, undeclared state, an unopenable game —
+is refused with its reasons, which is why agent-invented rules are
+safe to play. Agents at a table see their turn and legal moves in
+every observation.
+
 ## Lineage experiment (S11+)
 
 ```bash

@@ -284,6 +284,14 @@ func _format_event(e: Dictionary) -> String:
 		detail = "road laid"
 	elif kind == "ZONE_CLAIMED":
 		detail = "zone claimed"
+	elif kind == "GAME_PROPOSED":
+		detail = "proposed " + str(payload.get("name", "?"))
+	elif kind == "GAME_STARTED":
+		detail = "table seated"
+	elif kind == "GAME_MOVE":
+		detail = "played " + str(payload.get("move", "?"))
+	elif kind == "GAME_OVER":
+		detail = str(payload.get("winner", "?")) + " wins"
 	var actor = e.get("actor_id")
 	var who := "world" if actor == null else "agent %d" % int(actor)
 	return "[%s] %s: %s" % [who, kind.to_lower(), detail]
