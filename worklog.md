@@ -2507,6 +2507,58 @@ per-run provider seam is the operator's), a study dashboard, ranking
 or significance testing beyond summary statistics.
 
 ### Implementation
+- `app/experiments/lineage_study.py`: the study runner. Each run is a
+  full lineage experiment (`run_lineage_experiment` — the S11 engine
+  with its own experiment row), started from the *same* founder's
+  facts and the same generations; the axis that varies is named:
+  `--vary seed` (identical minds, different seeds — the determinism
+  control: identical histories, convergence 1.0) or `--vary model`
+  (identical seeds, a different mind per run — the divergence
+  experiment).
+- The roadmap's five measures, all normalized so runs are comparable —
+  fractions, shared-vocabulary counts, or mean/stdev/min/max/n:
+  - **cultural convergence**: mean pairwise Jaccard of the final
+    cultures (1.0 = every run told the same story);
+  - **divergence**: the complement for facts and vocabulary, plus the
+    mean number of facts unique to a run;
+  - **information loss**: the fraction of the founder's facts no
+    longer standing, with statistics across runs;
+  - **strategies**: each run's retention profile (retained / altered /
+    contradicted / new), the consensus profile, the per-run dominant
+    strategy and the mean pairwise spread;
+  - **vocabulary**: per-run distinct token counts, the union and
+    shared vocabularies, the shared fraction and growth against the
+    founder's.
+- The study is its own experiment row (`lineage_study`) whose
+  configuration records the axis, every run's experiment id and the
+  whole comparison; `--export` writes the same content to one JSON
+  file, so a study leaves the simulation and lives anywhere.
+
+### Verification
+- Tests: pytest **554 passed** (13 new: the null hypothesis — same
+  seed and mind, convergence 1.0, loss 0, spread 0; the determinism
+  check — a repeated study reproduces its comparison and every run's
+  final culture; different minds diverge — convergence < 1, loss > 0,
+  the full run keeping what the lossy run loses; per-run experiment
+  rows; each measure asserted for what it must show (identical
+  cultures, unique facts, loss statistics, opposite strategies);
+  the export round-trips as complete JSON and the CLI writes what it
+  reports; bad requests refused).
+- Live (dev DB): both axes — 3 runs varying the seed (**convergence
+  1.0, divergence 0, loss 0**) and 4 runs varying the mind (full,
+  lossy, new, full — **convergence 0.906, loss 0.025 ± 0.043,
+  strategy spread 0.045, vocabulary 34/32/38/34 with 0.842 shared**),
+  each exported to a JSON file whose keys and run records
+  round-trip.
+- Roadmap S32 checklist: results are exportable and statistically
+  comparable ✅ (every measure carries n/mean/stdev/min/max and the
+  study is one JSON document). Flood is an experimental platform
+  rather than a single simulation ✅.
+
+### Commits
+- (pending — not yet committed at time of writing)
+
+### Implementation
 - `app/experiments/lineage_study.py`: the study runner. N lineages
   run from identical starting conditions — the founder's facts are
   the constant — and one axis varies: ``seed`` (identical minds,
@@ -2557,18 +2609,15 @@ or significance testing beyond summary statistics.
 ## S33 — Compute-Constrained Lineages (in progress)
 
 ### Scope (2026-10-10)
-In: `app/simulation/budget.py` — one ledger per budget kind (tokens,
-model calls, CPU seconds, actions, experiment-wide compute), the
-`LimitExceeded` exception, and the engine's enforcement hooks; the
-world's `spend_*` methods bound by the agent's and the experiment's
-budgets; per-agent budgets from the registry (the spawn rule payload
-carries a budget); the observation's `budget` block (a mind that can
-see its remaining budget can economise); the agent detail's
-remaining budget; tests; CLI switches on the lineage experiment;
-worklog + quick-reference.
-Out: budget accounting that persists across restarts (the ledger is
-the live world's), selling or trading compute, a scheduler that
-rationes which agent thinks when budgets bind.
+In: `app/experiments/efficiency.py` — `measure_efficiency` (the four
+roadmap ratios read off any world's timeline and budget ledgers), a
+compact composite campaign scenario (discover, announce, craft,
+build, settle — all four measures non-trivial in one run), the
+efficiency study runner (identical scenarios under different compute
+budgets, compared), JSON export, CLI, tests, docs.
+Out: a scheduler that reallocates compute between agents, cost
+pricing (tokens as currency), and per-model cost tables — the ledger
+records what was spent, not what it would have cost elsewhere.
 
 ### Implementation
 - `app/simulation/budget.py`: `Budget` — one ledger per kind with

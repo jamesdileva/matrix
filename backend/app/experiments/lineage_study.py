@@ -83,6 +83,13 @@ def _mean_pairwise(sets: list[set]) -> float:
     return round(stats.fmean(pairs), 4)
 
 
+def _dominant(profile: dict) -> str | None:
+    """The strategy that dominates a retention profile, if any does."""
+    if not any(profile.values()):
+        return None
+    return max(profile, key=profile.get)
+
+
 def _profile(final: dict, original_count: int) -> dict:
     """A run's retention profile: what its transmission did, as fractions."""
     received = final.get("facts_received", 0)
@@ -414,6 +421,13 @@ def main() -> None:
 
     from app.persistence.database import SessionLocal
 
+    models = args.models.split(",") if args.models else None
+    if args.vary == "model" and not models:
+        # The default comparison: the retentive, the lossy and the
+        # inventor — cycling when the study asks for more runs.
+        base = ["full", "lossy", "new"]
+        models = [base[index % len(base)] for index in range(args.runs)]
+
     study = run_study(
         session_factory=SessionLocal,
         runs=args.runs,
@@ -422,7 +436,7 @@ def main() -> None:
         seed=args.seed,
         export_path=args.export,
         vary=args.vary,
-        models=args.models.split(",") if args.models else None,
+        models=models,
     )
     print_summary(study)
     if args.export:
