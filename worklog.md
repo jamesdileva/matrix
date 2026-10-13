@@ -2614,5 +2614,5 @@ rationes which agent thinks when budgets bind.
   same shape everywhere, so the S32 study harness can read it).
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `f73bb5d` — S33: compute-constrained lineages — five budget kinds, enforced at the seams that spend [pushed]
 
