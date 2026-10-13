@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S27 — Population Manager
-- Completed sprints: S01–S26, S06B (S26 done 2026-10-08)
+- **Next sprint:** S34 — the next step for the experimental platform (the studies are exportable; the console should read them)
+- Completed sprints: S01–S33, S06B (S33 done 2026-10-12)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -2491,20 +2491,18 @@ about the rules themselves.
 
 ---
 
-## S32 — Multiple Independent Lineages (in progress)
+## S32 — Multiple Independent Lineages
 
 ### Scope (2026-10-10)
 In: `app/experiments/lineage_study.py` — the study runner (N
-independent lineages run from identical starting conditions, varying
-only the seed), the roadmap's five measures (cultural convergence,
-divergence, information loss, strategies, vocabulary) as normalized
-per-run values with cross-run statistics (mean/stdev/min/max/n),
-JSON export of the whole study, the study's experiment row
-referencing each run's row, a CLI, tests.
-Out: varying models across runs in one process (the study varies the
-seed; a model-minded run uses whatever the settings configure — the
-per-run provider seam is the operator's), a study dashboard, ranking
-or significance testing beyond summary statistics.
+independent lineages run from identical starting conditions), the
+roadmap's five measures (cultural convergence, divergence,
+information loss, strategies, vocabulary) as normalized per-run values
+with cross-run statistics (mean/stdev/min/max/n), JSON export of the
+whole study, the study's experiment row referencing each run's row,
+a CLI, tests.
+Out: a study dashboard, ranking or significance testing beyond summary
+statistics.
 
 ### Implementation
 - `app/experiments/lineage_study.py`: the study runner. Each run is a
@@ -2556,57 +2554,13 @@ or significance testing beyond summary statistics.
   rather than a single simulation ✅.
 
 ### Commits
-- (pending — not yet committed at time of writing)
-
-### Implementation
-- `app/experiments/lineage_study.py`: the study runner. N lineages
-  run from identical starting conditions — the founder's facts are
-  the constant — and one axis varies: ``seed`` (identical minds,
-  different seeds: the determinism control, where everything should
-  converge) or ``model`` (identical seeds, a different mind per run:
-  ``--models "full,lossy,altering,negating,new"``, where cultures
-  genuinely part ways). Each run is a full lineage experiment with its
-  own row; the study is one row referencing them.
-- The roadmap's five measures, normalized so runs are comparable:
-  cultural convergence (mean pairwise Jaccard of final cultures),
-  divergence (its complement, plus facts unique to each run),
-  information loss (the fraction of the founder's facts no longer
-  standing, with n/mean/stdev/min/max), strategies (each run's
-  retention profile, the consensus profile, and their L1 spread), and
-  vocabulary (per-run token counts, the union, the shared vocabulary,
-  and growth against the founder's).
-- Export writes the whole study — configuration, every run, the
-  comparison — to one JSON file, so a study can leave the simulation
-  and live in a paper. CLI: ``--runs``, ``--vary``, ``--models``,
-  ``--generations``, ``--export``.
-
-### Verification
-- Tests: pytest **543 passed** (13 new: identical starts and seeds
-  converging completely — the null hypothesis; the same study
-  repeated byte-for-byte; different minds diverging with the lossy
-  run losing exactly what the full run keeps; every run getting its
-  own completed experiment row; each measure asserted for what it
-  must show (convergence of identical cultures, unique facts,
-  information-loss statistics, opposite strategies maximally far);
-  and the export — complete JSON with every measure, plus the CLI
-  path, and the three bad requests refused).
-- Live (dev DB): a five-run study varying the mind — **cultural
-  convergence 0.838, divergence 0.162, information loss 0.06 ±
-  0.049, strategy spread 0.088, vocabulary 34/32/37/35/38 (union 42,
-  shared 32)** — exported to an 11 KB JSON study file.
-- Roadmap S32 checklist: results are exportable ✅ (one JSON file
-  carrying configuration, runs and statistics) and statistically
-  comparable ✅ (every measure is a fraction, a shared count or a
-  summary statistic with n). End goal: Flood becomes an experimental
-  platform rather than a single simulation ✅.
-
-### Commits
 - `3bf04fe` — S32: multiple independent lineages — the study runner, five comparable measures, JSON export [pushed]
 - `a3f9709` — worklog: record S32 commit hash [pushed]
+- `9a7dc76` — the vary axis: identical minds/seeds as the determinism control, different minds per run as the divergence study [pushed]
 
 ---
 
-## S33 — Compute-Constrained Lineages (in progress)
+## S33 — Compute-Constrained Lineages
 
 ### Scope (2026-10-10)
 In: `app/experiments/efficiency.py` — `measure_efficiency` (the four
@@ -2664,4 +2618,5 @@ records what was spent, not what it would have cost elsewhere.
 
 ### Commits
 - `f73bb5d` — S33: compute-constrained lineages — five budget kinds, enforced at the seams that spend [pushed]
+- `ad48501` — worklog: record S33 commit hash [pushed]
 
