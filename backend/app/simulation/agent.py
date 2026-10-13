@@ -215,6 +215,10 @@ class Agent:
             # it is, what is legal now, the score. A mind that can see
             # its legal moves can play.
             "games": world.games_for(self.agent_id),
+            # Compute (S33): what this agent may still spend. A mind
+            # that can see its budget can economise — scarcity the
+            # agent cannot perceive is not a constraint on behaviour.
+            "budget": world.budget_view(self.agent_id),
         }
 
     def decide(self) -> dict:

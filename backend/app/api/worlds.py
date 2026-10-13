@@ -39,6 +39,9 @@ class CreateWorldRequest(BaseModel):
     # S27: the world's populations as spawn rules. Omitted means one
     # population — S09's shape, holding every founding agent.
     populations: list[dict] | None = None
+    # S33: the experiment-wide compute budget, shared by every agent.
+    # Kinds omitted are unlimited; the constraint is opt-in.
+    compute_budget: dict | None = None
 
 
 class SpawnRulePayload(BaseModel):
@@ -51,6 +54,11 @@ class SpawnRulePayload(BaseModel):
     max_members: int | None = Field(default=None, ge=0, le=256)
     top_up: bool = False
     stipend: dict[str, int] = Field(default_factory=dict)
+    # S33: the compute this population's members may spend.
+    tokens: float | None = Field(default=None, ge=0)
+    model_calls: int | None = Field(default=None, ge=0)
+    cpu_seconds: float | None = Field(default=None, ge=0)
+    actions: int | None = Field(default=None, ge=0)
 
 
 class BirthRequest(BaseModel):
@@ -107,6 +115,7 @@ async def create_world(payload: CreateWorldRequest, request: Request) -> dict:
             autostart=payload.autostart,
             brains=payload.brains,
             populations=payload.populations,
+            compute_budget=payload.compute_budget,
         )
     except ValueError as exc:
         # Unknown brains, a bad spawn rule, or a misconfigured model
@@ -246,6 +255,8 @@ def get_agent(world_id: int, agent_id: int, request: Request) -> dict:
                 "max_tokens": settings.model_max_tokens,
                 "timeout_seconds": settings.model_timeout_s,
             },
+            # S33: what this agent may still spend, by kind.
+            "budget": host.engine.world.budget_view(agent.agent_id),
         },
         "resources": host.engine.world.resources(agent.agent_id),
         # S29: what this agent knows how to make, and what it carries.
@@ -604,6 +615,10 @@ def create_population(world_id: int, payload: SpawnRulePayload, request: Request
         max_members=payload.max_members,
         top_up=payload.top_up,
         stipend=dict(payload.stipend),
+        tokens=payload.tokens,
+        model_calls=payload.model_calls,
+        cpu_seconds=payload.cpu_seconds,
+        actions=payload.actions,
     )
     try:
         statistics = request.app.state.worlds.add_population(world_id, rule)

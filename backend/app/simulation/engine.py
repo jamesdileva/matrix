@@ -19,9 +19,11 @@ from __future__ import annotations
 
 import copy
 import math
+import time
 
 from app.simulation.actions import ActionResult
 from app.simulation.agent import Agent
+from app.simulation.budget import Budget
 from app.simulation.errors import BirthError
 from app.simulation.events import EventTypes
 from app.simulation.inheritance import InheritancePackage
@@ -35,6 +37,7 @@ class Engine:
         world: World,
         population_id: int | None = None,
         populations: "PopulationManager | None" = None,
+        budget: Budget | None = None,
     ) -> None:
         self.world = world
         self.population_id = population_id
@@ -42,6 +45,10 @@ class Engine:
         # for the plain single-population engine (experiments that run
         # their own spawning).
         self.populations = populations
+        # S33: the experiment-wide compute budget, shared by every
+        # agent in the world. The per-agent ledgers live on the
+        # entities (the world's); this one is the run's ceiling.
+        self.budget = budget
         self._agents: dict[int, Agent] = {}
 
     def spawn_agent(self, agent: Agent, position: Position) -> None:
@@ -267,13 +274,63 @@ class Engine:
             refresh = getattr(agent.policy, "refresh", None)
             decision = observation = None
             if refresh is not None:
+                # S33: thinking costs a model call (and its tokens) and
+                # burns CPU. A mind out of budget does not think — it
+                # acts on its safe fallback, and the timeline says why.
+                if not self._may_think(agent):
+                    self._record_budget_exhausted(agent)
+                    results.append(self._act_once(agent))
+                    continue
+                started = time.perf_counter()
                 observation = agent.observe()
                 decision = await refresh(observation)
+                self._charge_thinking(
+                    agent.agent_id, time.perf_counter() - started
+                )
             result = self._act_once(agent)
             if refresh is not None:
+                # ``decision`` is None when the brain was silent: the
+                # recorder logs why (S08), so a failure and a budget
+                # refusal both land on the timeline.
                 self._record_mind(agent, decision, observation, result)
             results.append(result)
         return results
+
+    # ------------------------------------------------------------------
+    # Compute budgets (S33)
+    # ------------------------------------------------------------------
+
+    def _may_think(self, agent: Agent) -> bool:
+        """Whether this agent has the budget to think at all."""
+        budget = self.world.budget_of(agent.agent_id)
+        return budget.can_afford("model_calls") and self.world.experiment_budget.can_afford(
+            "model_calls"
+        )
+
+    def _charge_thinking(self, agent_id: int, elapsed_seconds: float) -> None:
+        """Charge one model call, the tokens the policy reports, and
+        the CPU the simulation burned reaching the decision."""
+        world = self.world
+        world._spend_budget(agent_id, "model_calls")
+        agent = self._agents.get(agent_id)
+        response = getattr(agent.policy, "last_response", None) if agent else None
+        usage = getattr(response, "usage", None) or {}
+        total = usage.get("total_tokens") if isinstance(usage, dict) else None
+        if isinstance(total, int) and total > 0:
+            world._spend_budget(agent_id, "tokens", total)
+        # CPU: the elapsed wall-clock of this thinking region, rounded
+        # into milliseconds so ledger arithmetic stays tidy.
+        world._spend_budget(
+            agent_id, "cpu_seconds", round(max(0.0, elapsed_seconds), 6)
+        )
+
+    def _record_budget_exhausted(self, agent: Agent) -> None:
+        """The timeline's record of a mind that could not afford to think."""
+        self.world._add_event(
+            EventTypes.BUDGET_EXHAUSTED,
+            actor_id=agent.agent_id,
+            payload={"budget": self.world.budget_view(agent.agent_id)},
+        )
 
     def _record_mind(
         self,

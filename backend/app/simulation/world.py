@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 from app.simulation.bus import EventBus
 from app.simulation.errors import CellOccupiedError, InvalidPositionError
 from app.simulation.events import Event, EventTypes
+from app.simulation.budget import AGENT_KINDS, Budget, KINDS, LimitExceeded
 from app.simulation.games import GameSession, validate_rules
 from app.simulation.geometry import Position
 from app.simulation.technology import (
@@ -135,6 +136,13 @@ class WorldObject:
         )
 
 
+def _clean_budget_value(kind: str, value):
+    """One budget cap, validated where it is set."""
+    from app.simulation.budget import _clean
+
+    return _clean(value, kind)
+
+
 class World:
     """A bounded grid world with deterministic seeded generation.
 
@@ -233,6 +241,11 @@ class World:
         self._sessions: dict[int, GameSession] = {}
         self._next_game_id = 1
         self._next_session_id = 1
+        # Compute budgets (S33): what every entity and the experiment
+        # itself may spend. Absent kinds are unlimited — the constraint
+        # is opt-in.
+        self._budgets: dict[int, Budget] = {}
+        self._experiment_budget: Budget | None = None
         # Teams (S25): team id -> member entity ids. Shared
         # observations list teammates by team, not by population.
         self._teams: dict[int, set[int]] = {}
@@ -1794,6 +1807,59 @@ class World:
                     "win_reason": session.win_reason,
                 }
             )
+        return view
+
+    # ------------------------------------------------------------------
+    # Compute budgets (S33)
+    # ------------------------------------------------------------------
+
+    def budget_of(self, entity_id: int) -> Budget:
+        """An entity's compute ledger, created on first sight."""
+        if entity_id not in self._budgets:
+            self._budgets[entity_id] = Budget()
+        return self._budgets[entity_id]
+
+    def set_budget(self, entity_id: int, **limits) -> Budget:
+        """Cap an entity's compute by kind (None leaves a kind open)."""
+        budget = self.budget_of(entity_id)
+        for kind, value in limits.items():
+            budget.limits[kind] = _clean_budget_value(kind, value)
+        return budget
+
+    @property
+    def experiment_budget(self) -> Budget:
+        """The run's shared budget: every agent's spend draws on it."""
+        if self._experiment_budget is None:
+            self._experiment_budget = Budget()
+        return self._experiment_budget
+
+    def _spend_budget(self, entity_id: int, kind: str, amount: float = 1) -> None:
+        """Charge both ledgers that apply: the entity's, then the
+        experiment's. The experiment's ceiling binds even when the
+        entity's own kind is open — a run cannot outspend its budget."""
+        budget = self.budget_of(entity_id)
+        budget.spend(kind, amount)
+        if self._experiment_budget is not None:
+            # Cap-less experiments spend nothing anywhere.
+            if self._experiment_budget.limits.get(kind) is not None:
+                self._experiment_budget.spend(kind, amount)
+
+    def budget_view(self, entity_id: int) -> dict:
+        """What an entity may still spend, as the observation sees it.
+
+        The experiment's shared ceiling rides along as ``experiment``:
+        only the kinds it actually caps, so a world without budgets
+        shows no study-wide ledger at all.
+        """
+        budget = self.budget_of(entity_id)
+        view = budget.to_dict()
+        if self._experiment_budget is not None:
+            ledger = self._experiment_budget.to_dict()
+            view["experiment"] = {
+                kind: ledger[kind]
+                for kind in KINDS
+                if self._experiment_budget.limits[kind] is not None
+            }
         return view
 
     def __repr__(self) -> str:

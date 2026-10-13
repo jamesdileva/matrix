@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from app.simulation.budget import LimitExceeded
 from app.simulation.events import Event, EventTypes
 from app.simulation.technology import Recipe, invention_for, knowledge_item
 from app.simulation.world import (
@@ -111,6 +112,18 @@ def execute_action(world: World, actor_id, action) -> ActionResult:
         )
 
     handler = globals()[handler_name]
+    # S33: the action budget binds before the run reaches the handler —
+    # an entity out of actions is refused here, not deep inside a
+    # half-applied rule.
+    try:
+        world._spend_budget(actor_id, "actions")
+    except LimitExceeded as exc:
+        return world._record_action(
+            ok=False,
+            actor_id=actor_id,
+            action=action,
+            data={"reason": "action_budget_exceeded", "kind": exc.kind, "remaining": exc.remaining},
+        )
     try:
         data = handler(world, actor_id, action)
     except _Rejected as exc:

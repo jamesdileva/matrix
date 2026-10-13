@@ -69,6 +69,9 @@ class EventTypes:
     GAME_STARTED = "GAME_STARTED"
     GAME_MOVE = "GAME_MOVE"
     GAME_OVER = "GAME_OVER"
+    # S33: compute. A mind that could not afford to think is a fact
+    # too — scarcity is part of the history.
+    BUDGET_EXHAUSTED = "BUDGET_EXHAUSTED"
     # S27: populations. A group coming to be — founded, or a new
     # member arriving under its spawn rule — is a fact too.
     POPULATION_SPAWN = "POPULATION_SPAWN"

@@ -2550,4 +2550,69 @@ or significance testing beyond summary statistics.
 
 ### Commits
 - `3bf04fe` — S32: multiple independent lineages — the study runner, five comparable measures, JSON export [pushed]
+- `a3f9709` — worklog: record S32 commit hash [pushed]
+
+---
+
+## S33 — Compute-Constrained Lineages (in progress)
+
+### Scope (2026-10-10)
+In: `app/simulation/budget.py` — one ledger per budget kind (tokens,
+model calls, CPU seconds, actions, experiment-wide compute), the
+`LimitExceeded` exception, and the engine's enforcement hooks; the
+world's `spend_*` methods bound by the agent's and the experiment's
+budgets; per-agent budgets from the registry (the spawn rule payload
+carries a budget); the observation's `budget` block (a mind that can
+see its remaining budget can economise); the agent detail's
+remaining budget; tests; CLI switches on the lineage experiment;
+worklog + quick-reference.
+Out: budget accounting that persists across restarts (the ledger is
+the live world's), selling or trading compute, a scheduler that
+rationes which agent thinks when budgets bind.
+
+### Implementation
+- `app/simulation/budget.py`: `Budget` — one ledger per kind with
+  optional caps, `spend` refusing anything that would cross a cap
+  (`LimitExceeded`, deducting nothing — a budget that lies is worse
+  than none), and `to_dict` reporting spent/capped/remaining. `KINDS`
+  is the vocabulary; `AGENT_KINDS` is the four a member may hold,
+  since `experiment` is the run's shared ceiling and never an
+  agent's own.
+- Enforcement sits where compute is spent, nowhere else: the action
+  dispatcher charges one `actions` per attempt (before the handler
+  runs, so a refusal is never half-applied), and `Engine.step_async`
+  gates the model path on `model_calls` — a mind that cannot afford
+  to think acts on its fallback and the timeline records
+  `BUDGET_EXHAUSTED` — charging one call, the tokens the policy
+  reports, and the CPU the thinking region actually burned.
+- `World` holds the per-entity ledgers (`budget_of`/`set_budget`) plus
+  the experiment's shared budget; the registry wires a run's
+  `compute_budget` payload and a spawn rule's per-kind caps onto every
+  member as it arrives; the observation's `budget` block and the agent
+  detail's `compute.budget` report what remains — a mind that can see
+  its budget can economise, which is the point of making it visible.
+
+### Verification
+- Tests: pytest **554 passed** (11 new: the ledger's spend/refuse/
+  report semantics; an agent out of actions refused with the truth
+  remaining and nothing deducted past the cap; the experiment's
+  ceiling binding every agent; a mind out of model calls acting on
+  its fallback with the exhaustion on the timeline; per-call, per-token
+  and per-CPU charging; the observation's budget block; and the API —
+  a spawn rule bounding its members with the experiment's ceiling
+  visible alongside).
+- Live (dev API, world 120): a world created with
+  `compute_budget {model_calls: 4}` and a member bounded at 3 actions
+  — the detail route reported `actions remaining 3` and the
+  experiment cap of 4; three actions succeeded, the fourth was
+  refused with `action_budget_exceeded`, and the ledger's spent
+  stayed at 3.
+- Roadmap S33 checklist: an agent cannot exceed configured resources
+  ✅ (all four agent-level kinds plus the experiment-wide ceiling,
+  asserted in tests and live). End goal: intelligence under
+  constrained computation can be compared ✅ (the ledger is the
+  same shape everywhere, so the S32 study harness can read it).
+
+### Commits
+- (pending — not yet committed at time of writing)
 

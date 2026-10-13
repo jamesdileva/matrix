@@ -430,6 +430,29 @@ is refused with its reasons, which is why agent-invented rules are
 safe to play. Agents at a table see their turn and legal moves in
 every observation.
 
+## Compute budgets (S33+)
+
+```bash
+# a run whose every member is bounded at 3 actions, with a
+# study-wide ceiling of 4 model calls
+curl -s -X POST localhost:8000/api/worlds -H "Content-Type: application/json" \
+  -d '{"seed": "frugal", "autostart": false,
+       "compute_budget": {"model_calls": 4},
+       "populations": [{"name": "ants", "members": 2, "actions": 3}]}'
+# what an agent may still spend
+curl -s localhost:8000/api/worlds/1/agents/1 | grep -o '"budget".*'   # or read the whole detail
+```
+
+Five kinds — `tokens`, `model_calls`, `cpu_seconds`, `actions`, and
+the experiment-wide `experiment` ceiling. Caps are opt-in per member
+(a spawn rule field) or per run (`compute_budget`); an uncapped kind
+is unlimited. Spending past a cap is refused at the seam that spends
+— one `actions` per attempted action, one `model_calls` + tokens +
+CPU per model call — and refuses nothing half-applied: a mind that
+cannot afford to think acts on its fallback and the timeline records
+`BUDGET_EXHAUSTED`. Every observation and agent detail carries the
+remaining ledger.
+
 ## Lineage experiment (S11+)
 
 ```bash

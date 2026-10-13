@@ -25,6 +25,7 @@ from app.models.provider import ModelProvider
 from app.persistence.models import AgentModel, PopulationModel, WorldModel
 from app.persistence.repositories import AgentRecorder, DatabaseEventRecorder
 from app.simulation.agent import Agent
+from app.simulation.budget import AGENT_KINDS as BUDGET_KINDS, Budget
 from app.simulation.bus import EventBus
 from app.simulation.engine import Engine
 from app.simulation.events import EventTypes
@@ -334,6 +335,7 @@ class WorldRegistry:
         autostart: bool = True,
         brains: str = BRAINS_SCRIPTED,
         populations: list[dict] | None = None,
+        compute_budget: dict | None = None,
     ) -> WorldHost:
         if brains not in _BRAINS:
             raise ValueError(f"unknown brains {brains!r}; expected one of {_BRAINS}")
@@ -417,9 +419,21 @@ class WorldRegistry:
         engine = Engine(world, population_id=population_ids[0] if population_ids else None)
         manager = PopulationManager(engine, agent_factory=agent_factory, cell_hint=cell_hint)
         engine.populations = manager
+        # S33: the experiment's own ceiling, before any member spends.
+        if compute_budget:
+            engine.budget = Budget(limits=dict(compute_budget))
+            world._experiment_budget = engine.budget
         for population_id, rule in zip(population_ids, rules):
             manager.register(population_id, rule)
             manager.spawn_founding(population_id)
+            # S33: a rule may bound its members' compute — the budget
+            # lands on every member as it arrives.
+            if any(getattr(rule, key, None) is not None for key in BUDGET_KINDS):
+                for agent in manager.members(population_id):
+                    world.set_budget(
+                        agent.agent_id,
+                        **{key: getattr(rule, key) for key in BUDGET_KINDS},
+                    )
 
         # Founding agents get their rows now; births are persisted by
         # the AgentRecorder subscriber off the world's event bus.

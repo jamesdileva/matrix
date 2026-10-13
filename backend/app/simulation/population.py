@@ -31,6 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from app.simulation.agent import Agent
+from app.simulation.budget import AGENT_KINDS as BUDGET_KINDS
 from app.simulation.engine import Engine
 from app.simulation.events import EventTypes
 from app.simulation.policies import ForagerPolicy, GathererPolicy, WanderPolicy
@@ -83,6 +84,12 @@ class SpawnRule:
     max_members: int | None = None
     top_up: bool = False
     stipend: dict = field(default_factory=dict)
+    # S33: the compute this rule's members may spend. Kinds omitted
+    # from a rule (or None) are unlimited.
+    tokens: float | None = None
+    model_calls: int | None = None
+    cpu_seconds: float | None = None
+    actions: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not self.name.strip():
@@ -108,6 +115,10 @@ class SpawnRule:
         for kind, amount in self.stipend.items():
             if not isinstance(amount, int) or isinstance(amount, bool) or amount < 0:
                 raise ValueError(f"stipend amounts must be non-negative integers, got {kind}={amount!r}")
+        for kind in BUDGET_KINDS:
+            value = getattr(self, kind)
+            if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0):
+                raise ValueError(f"budget {kind} must be a non-negative number, got {value!r}")
 
     def to_dict(self) -> dict:
         return {
@@ -118,6 +129,7 @@ class SpawnRule:
             "max_members": self.max_members,
             "top_up": self.top_up,
             "stipend": dict(self.stipend),
+            **{kind: getattr(self, kind) for kind in BUDGET_KINDS},
         }
 
     @classmethod
@@ -135,6 +147,7 @@ class SpawnRule:
             max_members=data.get("max_members"),
             top_up=bool(data.get("top_up", False)),
             stipend=dict(data.get("stipend") or {}),
+            **{kind: data.get(kind) for kind in BUDGET_KINDS},
         )
 
 
