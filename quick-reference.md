@@ -447,8 +447,25 @@ cd backend
 #   app.experiments.replay_lineage_experiment(SessionLocal, experiment_id)
 ```
 
-## Word-seed experiment (S16+)
+## Lineage study — multiple independent lineages (S32+)
 
+```bash
+cd backend
+# the determinism control: identical minds, different seeds (a null hypothesis)
+.venv/Scripts/python -m app.experiments.lineage_study --runs 3 --generations 12 --seed null
+# the divergence study: identical starts, a different mind per run
+.venv/Scripts/python -m app.experiments.lineage_study --runs 5 --vary model \
+  --models full,lossy,altering,negating,new --generations 15 --export study.json
+```
+
+Every run is a full lineage experiment with its own row; the study is
+one row referencing them, and `--export` writes the whole thing —
+configuration, every run, and the roadmap's measures (cultural
+convergence, divergence, information loss, strategies, vocabulary) as
+normalized values with n/mean/stdev/min/max, so runs are statistically
+comparable and the study can leave the simulation.
+
+## Word-seed experiment (S16+)
 ```bash
 cd backend
 .venv/Scripts/python -m app.experiments.wordseed                          # control: 5 seeds, 2 populations
