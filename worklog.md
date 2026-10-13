@@ -2549,5 +2549,5 @@ or significance testing beyond summary statistics.
   platform rather than a single simulation ✅.
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `3bf04fe` — S32: multiple independent lineages — the study runner, five comparable measures, JSON export [pushed]
 
