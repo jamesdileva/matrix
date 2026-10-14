@@ -2812,5 +2812,5 @@ lineages at once.
   descendant invents confidently rather than admitting ignorance.
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `47df667` — S36: reconstruction experiment — hidden ancestor, limited records, quantified failure profile [pushed]
 
