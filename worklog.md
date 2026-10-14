@@ -2687,5 +2687,5 @@ platform's output for now).
   limited compute?" ✅ (the ratios, side by side, are the answer).
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `f5a4ddd` — S34: compute efficiency — four ratios off the timeline and ledger, budget-comparison study [pushed]
 
