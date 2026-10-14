@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S35 — Cultural Compression
-- Completed sprints: S01–S34, S06B (S34 done 2026-10-12)
+- **Next sprint:** S36 — Reconstruction Experiment
+- Completed sprints: S01–S35, S06B (S35 done 2026-10-12)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -2688,4 +2688,67 @@ platform's output for now).
 
 ### Commits
 - `f5a4ddd` — S34: compute efficiency — four ratios off the timeline and ledger, budget-comparison study [pushed]
+- `33b94f3` — worklog: record S34 commit hash [pushed]
+
+---
+
+## S35 — Cultural Compression
+
+### Scope (2026-10-12)
+In: `app/experiments/compression.py` — the codecs (verbose,
+compressed, symbolic — a learned, capped, generation-sharing symbol
+dictionary), the transmission chain (each generation's culture
+travels through the codec; the receiver holds the *reconstruction*),
+the roadmap's three measures (bits/tokens transmitted, retained
+knowledge, reconstruction accuracy), the study comparing the three
+transmissions side by side, JSON export, CLI, tests, docs.
+Out: codecs that adapt their bandwidth mid-run (the dictionary grows,
+but each transmission's form is fixed — adaptation across *runs* is
+the operator's lever), semantic scoring of reconstructions beyond
+token overlap, and a console surface (the export is the artifact).
+
+### Implementation
+- `Codec` as data: fact and token bandwidths, whether the
+  transmission is symbolic, and the dictionary's cap. `Codebook` is
+  the lineage's shared token→symbol dictionary — learned once, reused
+  every generation, which is what makes symbolic transmission
+  cumulative rather than per-generation noise. A full dictionary
+  encodes `?` and the reconstruction honestly loses that token.
+- Every generation transmits through the codec and the next
+  generation *holds the reconstruction*, so bandwidth shows up as
+  culture mutation, not just a smaller envelope.
+- The measures reuse the S11 classifier verbatim for retention, and
+  token Jaccard for reconstruction accuracy. Bits charge symbols at
+  log2 of the codebook — the learned dictionary for symbolic, the
+  culture's shared vocabulary for plain transmission (the words a
+  plain sender and receiver already agree on).
+- The study runs one lineage per codec from identical seeds and the
+  same founder culture, and reports the roadmap's determination:
+  bits saved against retention lost and reconstruction degraded.
+
+### Verification
+- Tests: pytest **585 passed** (17 new: verbose passing everything;
+  compressed truncating to its named bandwidths; the symbolic
+  dictionary mapping repeated tokens to one symbol and staying
+  stable; a capped dictionary costing reconstruction; bits charging
+  the codebook's rate for both plain and symbolic forms; the control
+  losing nothing; restricted bandwidth costing knowledge and
+  reconstruction; the symbolic code keeping more culture standing
+  than truncation; determinism; unknown codecs; run and study rows;
+  the subset of codecs; and the export round-trip).
+- Live (dev DB): the three transmissions over 12 generations —
+  **verbose 43 bits/gen with retention 1.0 and reconstruction 1.0;
+  compressed 26 bits (−39.5%) with retention 0.6 and reconstruction
+  0.625; symbolic 40 bits (−7.0%) with retention 0.8 and
+  reconstruction 0.625** — exported to a 2.6 KB study file.
+- Roadmap S35 checklist: the comparison runs ✅ (all three
+  transmissions, identical starts). The end goal's determination:
+  under scarcity the lineage that cuts keeps the fewest facts for the
+  fewest bits, while the shared code keeps most of the culture for a
+  smaller saving — efficiency and fidelity trade off along a visible
+  frontier, and repeated scarcity alone does not buy efficiency; a
+  shared code does.
+
+### Commits
+- (pending — not yet committed at time of writing)
 

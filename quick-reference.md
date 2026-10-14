@@ -530,6 +530,25 @@ campaign run is its own row; the study is one row and one exported
 JSON, so identical scenarios under different budgets are directly
 comparable.
 
+## Cultural compression (S35+)
+
+```bash
+cd backend
+.venv/Scripts/python -m app.experiments.compression                       # all three transmissions
+.venv/Scripts/python -m app.experiments.compression --codecs verbose,symbolic --generations 20
+.venv/Scripts/python -m app.experiments.compression --export compression.json
+```
+
+Three transmissions of one seed culture under restricted inheritance
+bandwidth: **verbose** (everything passes — the control), **compressed**
+(first few facts, first few tokens — a hard cut), **symbolic** (a
+learned, capped symbol dictionary shared across generations). The
+roadmap's three measures per generation: bits transmitted (symbols ×
+log2 codebook), retained knowledge (S11's classifier), reconstruction
+accuracy (token Jaccard of the original message). The study's
+comparison is the determination the sprint asks for: how much
+bandwidth each saves, and what it costs.
+
 ## Database (S02+)
 
 ```bash
