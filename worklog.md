@@ -2750,5 +2750,5 @@ token overlap, and a console surface (the export is the artifact).
   shared code does.
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `8ff1d64` — S35: cultural compression — bandwidth codecs, transmission chain, three-way comparison study [pushed]
 
