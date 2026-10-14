@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S36 — Reconstruction Experiment
-- Completed sprints: S01–S35, S06B (S35 done 2026-10-12)
+- **Next sprint:** S37 — Replay & Time Machine
+- Completed sprints: S01–S36, S06B (S36 done 2026-10-12)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -2751,4 +2751,66 @@ token overlap, and a console surface (the export is the artifact).
 
 ### Commits
 - `8ff1d64` — S35: cultural compression — bandwidth codecs, transmission chain, three-way comparison study [pushed]
+- `18b457d` — worklog: record S35 commit hash [pushed]
+
+---
+
+## S36 — Reconstruction Experiment
+
+### Scope (2026-10-12)
+In: `app/experiments/reconstruction.py` — the procedure end to end
+(the lineage grows; Agent 0 is hidden; the descendant receives
+limited records; it reconstructs), the roadmap's four measures (exact
+recovery, semantic recovery, invented history, confidence), the
+study quantifying the failure profile per record quality, JSON
+export, CLI, tests, docs.
+Out: model-mind historians beyond the seam (the runner is
+provider-ready; a model historian reconstructs in its own words and
+states its confidence, tested through a stub), records the
+descendant can request selectively, and archaeology across several
+lineages at once.
+
+### Implementation
+- Ancestor hiding is structural, not a promise: the originals enter
+  this module once, for scoring. The scripted historian's only input
+  is the archive it was handed, and a model historian is prompted with
+  the records and nothing else.
+- Limited records are the archive the descendant actually gets:
+  `full` (the culture as it stands), `compressed` (S35's truncating
+  codec), `symbolic` (symbols with the codebook *lost* — the
+  catastrophic case an undeciphered history presents).
+- The measures: exact recovery (originals present verbatim), semantic
+  recovery (per-original best token-Jaccard, graded), invented history
+  (reconstructed facts no original is close to — including the
+  founder's own surviving note, which is honestly not one of the
+  original facts), and confidence (a model's claim; the scripted
+  control reports its measured exact recovery instead of claiming).
+- The study runs one lineage per record quality from identical seeds
+  and reports the profile — the roadmap's end goal as a table.
+
+### Verification
+- Tests: pytest **602 passed** (17 new: exact vs semantic scoring;
+  altered facts scoring semantic but not exact; invented history;
+  empty reconstructions; the ancestor's hiding (the control never sees
+  originals; symbol archives contain no original words); a shallow
+  lineage reconstructing exactly with one inherited note; a long
+  lineage forgetting what a short one keeps; a partial archive
+  forgetting more than a full one; an unreadable archive inventing
+  everything; run rows completing with the lineage referenced, not
+  duplicated; unknown records/reconstructors refused; the profile
+  ordering across record qualities; subsets; study rows; the export
+  round-trip).
+- Live (dev DB): at the roadmap's depth — **200 generations, full
+  records: exact 1.0, semantic 1.0, invented 1 (the founder's note),
+  confidence 1.0; compressed: exact 0.3; symbolic: exact 0.0 with 11
+  invented** — and a lossy 60-generation lineage under the same
+  archives (0.4 / 0.3 / 0.0), exported to JSON.
+- Roadmap S36 checklist: the procedure runs end to end ✅. The end
+  goal: historical reconstruction failure is quantified ✅ — intact
+  records reconstruct perfectly at any depth; truncation costs ~70%
+  of the facts; a codebook without a key costs everything, and the
+  descendant invents confidently rather than admitting ignorance.
+
+### Commits
+- (pending — not yet committed at time of writing)
 

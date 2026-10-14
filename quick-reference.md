@@ -549,6 +549,26 @@ accuracy (token Jaccard of the original message). The study's
 comparison is the determination the sprint asks for: how much
 bandwidth each saves, and what it costs.
 
+## Reconstruction experiment (S36+)
+
+```bash
+cd backend
+# hide the ancestor; hand the descendant intact, truncated or unreadable records
+.venv/Scripts/python -m app.experiments.reconstruction --generations 200
+.venv/Scripts/python -m app.experiments.reconstruction --mode lossy --generations 60
+.venv/Scripts/python -m app.experiments.reconstruction --records full,compressed --export rec.json
+```
+
+The procedure: a lineage grows from the founder's culture (any S11
+mode, any depth), Agent 0 is hidden — the originals exist only for
+scoring — and the final descendant receives *limited records*: the
+archive intact, truncated (S35's compressed codec), or symbols with
+the codebook lost. The measures are exact recovery, semantic recovery
+(token-Jaccard), invented history (what no original explains), and
+confidence (a model's claim, or the scripted control's measured
+exact recovery). The study's profile is the sprint's end goal:
+historical reconstruction failure, quantified per record quality.
+
 ## Database (S02+)
 
 ```bash
