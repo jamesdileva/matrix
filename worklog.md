@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S34 — the next step for the experimental platform (the studies are exportable; the console should read them)
-- Completed sprints: S01–S33, S06B (S33 done 2026-10-12)
+- **Next sprint:** S35 — Cultural Compression
+- Completed sprints: S01–S34, S06B (S34 done 2026-10-12)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -2563,15 +2563,17 @@ statistics.
 ## S33 — Compute-Constrained Lineages
 
 ### Scope (2026-10-10)
-In: `app/experiments/efficiency.py` — `measure_efficiency` (the four
-roadmap ratios read off any world's timeline and budget ledgers), a
-compact composite campaign scenario (discover, announce, craft,
-build, settle — all four measures non-trivial in one run), the
-efficiency study runner (identical scenarios under different compute
-budgets, compared), JSON export, CLI, tests, docs.
-Out: a scheduler that reallocates compute between agents, cost
-pricing (tokens as currency), and per-model cost tables — the ledger
-records what was spent, not what it would have cost elsewhere.
+In: `app/simulation/budget.py` — the five-kind compute ledger
+(tokens, model_calls, cpu_seconds, actions, experiment), enforced at
+the seams that spend (the action dispatcher and the model-thinking
+region), observations and the agent detail reporting what remains,
+and the registry wiring a run's `compute_budget` and a spawn rule's
+caps onto every member.
+Out: the efficiency measures and the budget-comparison study — the
+ledger records what was spent (S33); reading ratios off it and
+comparing identical scenarios under different budgets is S34's. Also
+out: a scheduler that reallocates compute between agents, cost
+pricing (tokens as currency), per-model cost tables.
 
 ### Implementation
 - `app/simulation/budget.py`: `Budget` — one ledger per kind with
@@ -2619,4 +2621,71 @@ records what was spent, not what it would have cost elsewhere.
 ### Commits
 - `f73bb5d` — S33: compute-constrained lineages — five budget kinds, enforced at the seams that spend [pushed]
 - `ad48501` — worklog: record S33 commit hash [pushed]
+
+---
+
+## S34 — Compute Efficiency
+
+### Scope (2026-10-12)
+In: `app/experiments/efficiency.py` — `measure_efficiency` (the
+roadmap's four ratios read off a world's own timeline and budget
+ledgers), a compact composite campaign scenario (discover, announce,
+craft, build, settle — all four ratios non-trivial in one run), the
+efficiency study runner (identical scenarios under different compute
+budgets, compared), JSON export, CLI, tests, docs.
+Out: a scheduler that reallocates compute, cost pricing, per-model
+cost tables, and a console study dashboard (the exports are the
+platform's output for now).
+
+### Implementation
+- `measure_efficiency(world, agents)` reads everything the machinery
+  already produces: discoveries and tasks from INVENTION/CRAFT/SETTLE
+  events, messages from SPEECH/DIRECT/ANNOUNCE/BROADCAST, and the
+  spends from the S33 ledgers — summed across every agent ledger and
+  the experiment's shared ceiling, because the action dispatcher
+  charges both. Surviving concepts are the distinct recipes and
+  patterns the world still knows plus the knowledge agents carry.
+- The four ratios, with `None` rather than a fake zero when a
+  denominator is empty: `tokens_per_discovery`,
+  `cpu_seconds_per_solution`, `messages_per_successful_task`, and
+  `compute_per_surviving_concept` — where compute is the documented
+  composite (tokens + model calls + actions + CPU seconds). Every
+  record carries the raw ledger so a reader can recompute anything.
+- The campaign: a founder that discovers, announces, crafts an axe,
+  raises a home and settles Foundry; a neighbour that joins, banks
+  its gathers into the shared storehouse and keeps the grove worked.
+  Scripted calibrations carry the measures; model mode runs the same
+  scenario through ModelPolicies (the wrapper exposes `refresh`, so
+  the S33 engine charges what the model actually thinks).
+- The study: identical scenarios under named budgets
+  (`unconstrained;tight:model_calls=2,actions=12` — or any
+  `label:kind=cap,...` list), each run its own experiment row, the
+  study one row whose configuration carries the whole comparison,
+  and `--export` writing it all as JSON.
+
+### Verification
+- Tests: pytest **568 passed** (14 new: ratio semantics (an empty
+  denominator is `None`); all four ratios off one hand-built run with
+  exact expected values and the raw ledger; the campaign completing
+  every measure (discoveries, tasks, messages, concepts, compute);
+  a tight budget accomplishing strictly less than an unconstrained
+  one on both tasks and compute; the model-minded campaign charging
+  model calls and reporting tokens through a usage-reporting stub;
+  determinism; the study comparing two budgets with identical
+  scenarios and completing all rows; named budgets; the export
+  round-trip; the CLI's budget parser; and the bad requests).
+- Live (dev DB): the study — **unconstrained: 3 discoveries, 5
+  tasks, 4 messages, 3 concepts for 80 compute; tight: 4 tasks, 2
+  messages, 64 compute**, ratios 0.8 vs 0.5 messages per task and
+  26.7 vs 21.3 compute per concept; exported to JSON. Model mode
+  runs the seam (the mock wanders rather than campaigning, so its
+  denominators are honestly empty — `None` everywhere, as designed).
+- Roadmap S34 checklist: identical scenarios can be run under
+  different compute budgets ✅ (that is exactly what the study does,
+  and the tight run's smaller accomplishment is the measurement).
+  Flood can answer "what can an agent lineage accomplish with
+  limited compute?" ✅ (the ratios, side by side, are the answer).
+
+### Commits
+- (pending — not yet committed at time of writing)
 

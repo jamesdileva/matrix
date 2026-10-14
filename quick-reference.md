@@ -510,6 +510,26 @@ lengths, and token-Jaccard similarity per generation. `--mode model`
 takes ~1 model call per generation (100 calls for the full run) —
 preload the Ollama model first; a contended Ollama makes it slow.
 
+## Compute efficiency (S34+)
+
+```bash
+cd backend
+# the composite campaign under two budgets: unconstrained and tight
+.venv/Scripts/python -m app.experiments.efficiency --ticks 40
+# name your own budgets (label:kind=cap,...;label:...)
+.venv/Scripts/python -m app.experiments.efficiency --budgets "open;capped:model_calls=4,actions=25"
+.venv/Scripts/python -m app.experiments.efficiency --mode model --export eff.json   # real minds, real tokens
+```
+
+The four ratios are read off the world's own timeline and the S33
+ledger: `tokens / discovery`, `cpu_seconds / solution`,
+`messages / successful task`, `compute / surviving concept` (compute =
+tokens + model calls + actions + CPU seconds, a documented composite).
+A ratio with an empty denominator is `None`, not a fake zero. Each
+campaign run is its own row; the study is one row and one exported
+JSON, so identical scenarios under different budgets are directly
+comparable.
+
 ## Database (S02+)
 
 ```bash
