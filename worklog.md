@@ -2875,5 +2875,5 @@ not generation).
   like a time machine ✅.
 
 ### Commits
-- (pending — not yet committed at time of writing)
+- `e8613f8` — S37: replay & time machine — event-sourced reconstruction, tick/event jumps, diff, console panel [pushed]
 
