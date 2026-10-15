@@ -269,6 +269,9 @@ def _build(world: World, actor_id, action: dict) -> dict:
         "object_id": obj.id,
         "structure_id": structure_id,
         "position": target.to_dict(),
+        # The ledger's movement rides the event, so a replay (S37) can
+        # rebuild the books from the timeline alone.
+        "cost": dict(recipe),
     }
 
 

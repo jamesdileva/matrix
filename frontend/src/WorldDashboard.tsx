@@ -14,6 +14,7 @@ import { GamesPanel } from "./GamesPanel";
 import { ParticipantPanel } from "./ParticipantPanel";
 import { PopulationStats } from "./PopulationStats";
 import { PopulationsPanel } from "./PopulationsPanel";
+import { ReplayPanel } from "./ReplayPanel";
 import { SettlementsPanel } from "./SettlementsPanel";
 import { WorldViewport } from "./WorldViewport";
 import { buttonStyle, colors, headingStyle, panelStyle } from "./theme";
@@ -187,6 +188,7 @@ export function WorldDashboard({ worldId, onWorldsChanged }: Props) {
       </div>
 
       <EventStream events={events} />
+      <ReplayPanel worldId={worldId} />
     </div>
   );
 }

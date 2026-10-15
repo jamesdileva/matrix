@@ -1,6 +1,6 @@
 """Repository layer: persistence for engine artifacts.
 
-The engine stays pure — this module subscribes to the EventBus
+The engine stays pure ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â this module subscribes to the EventBus
 (`DatabaseEventRecorder`) and answers event queries (`EventRepository`)
 for the API and future UI layers.
 """
@@ -25,13 +25,13 @@ from app.simulation.events import Event, EventTypes
 class DatabaseEventRecorder:
     """EventBus subscriber that persists one world's events to the database.
 
-    Each event commits in its own short-lived session by default —
+    Each event commits in its own short-lived session by default ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
     simple and safe at current scale, and what live watched worlds want
     (the database is their durable archive).
 
     ``batch_size > 1`` is the scale switch (S12): events buffer in
     memory and commit in one transaction per batch. No session is held
-    between events — SQLite would lock out concurrent writers
+    between events ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â SQLite would lock out concurrent writers
     (checkpoints, agent rows). Callers that batch must ``flush()``; the
     experiment runner does, and a hard crash loses at most one batch.
     """
@@ -121,12 +121,50 @@ class EventRepository:
         with Session(self._engine) as session:
             return len(list(session.scalars(stmt)))
 
+    def load_for_replay(self, world_id: int) -> list[Event]:
+        """The whole log as engine events, in timeline order (S37).
+
+        The write side is DatabaseEventRecorder on the world's bus;
+        this is the replay engine's source of truth. ``sequence`` is
+        the per-world event id the engine assigned, restored so replay
+        sees exactly the ids the timeline advertised.
+        """
+        stmt = (
+            select(EventModel)
+            .where(EventModel.world_id == world_id)
+            .order_by(EventModel.tick, EventModel.id)
+        )
+        with self._session() as session:
+            rows = list(session.scalars(stmt))
+        return [
+            Event(
+                id=row.sequence if row.sequence is not None else row.id,
+                tick=row.tick,
+                type=row.type,
+                actor_id=row.actor_id,
+                target_id=row.target_id,
+                payload=row.payload or {},
+            )
+            for row in rows
+        ]
+
+    def _session(self):
+        """A session from whatever this repository was built with.
+
+        The rest of the class runs on a SQLAlchemy engine; the replay
+        reader is handed a session maker by the registry, so both
+        shapes work.
+        """
+        if isinstance(self._engine, sessionmaker):
+            return self._engine()
+        return Session(self._engine)
+
 
 class ExperimentRepository:
     """Experiment rows: the durable record of a run's configuration.
 
     ``create`` stamps the active model configuration by default (guide:
-    "model configuration is recorded with experiment") — credentials
+    "model configuration is recorded with experiment") ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â credentials
     are never part of it (see app/models/config.py).
     """
 
@@ -169,11 +207,11 @@ class AgentRecorder:
     local -> global mapping for one world, seeded by the registry with
     the founding agents and extended by every birth it sees.
 
-    Only ``AGENT_BORN`` matters here — action and decision events are
+    Only ``AGENT_BORN`` matters here ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â action and decision events are
     ``DatabaseEventRecorder``'s job.
 
     Each birth commits in its own short session: the next birth's parent
-    is this child, so its global id must exist immediately — a held
+    is this child, so its global id must exist immediately ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â a held
     transaction would lock out concurrent writers for no gain.
     """
 
@@ -229,7 +267,6 @@ class AgentRecorder:
 
 class CheckpointRepository:
     """Checkpoint rows: the resumable snapshots of a run (S12)."""
-
     def __init__(self, session_factory) -> None:
         self._session_factory = session_factory
 
@@ -284,7 +321,7 @@ class AgentRepository:
     def lineage(self, world_id: int) -> list[dict]:
         """One entry per recorded agent: local id, parent's local id, generation.
 
-        The chain's verifiable form — this is what the roadmap's
+        The chain's verifiable form ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â this is what the roadmap's
         0 -> 1 -> ... -> 100 check reads.
         """
         rows = self.for_world(world_id)

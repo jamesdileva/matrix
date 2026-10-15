@@ -343,6 +343,52 @@ export const api = {
     post(`/api/worlds/${id}/games/sessions/${sessionId}/moves`, {
       move,
     }) as unknown as Promise<{ world_id: number; session: GameSession; move: Record<string, unknown> }>,
+  replayTimeline: (id: number) =>
+    request<{
+      world_id: number;
+      timeline: {
+        events: number;
+        first_tick: number;
+        last_tick: number;
+        by_type: Record<string, number>;
+        births: number;
+        generations: number;
+        entities_seen: number;
+      };
+    }>(`/api/worlds/${id}/replay/timeline`),
+  replayState: (id: number, query: { tick?: number; event_id?: number }) => {
+    const params = new URLSearchParams();
+    if (query.event_id !== undefined) params.set("event_id", String(query.event_id));
+    if (query.tick !== undefined) params.set("tick", String(query.tick));
+    return request<WorldState & { replay: Record<string, unknown> }>(
+      `/api/worlds/${id}/replay/state?${params.toString()}`,
+    );
+  },
+  replayEvents: (
+    id: number,
+    query: { from_tick: number; to_tick?: number; type?: string; limit?: number },
+  ) => {
+    const params = new URLSearchParams({ from_tick: String(query.from_tick) });
+    if (query.to_tick !== undefined) params.set("to_tick", String(query.to_tick));
+    if (query.type) params.set("type", query.type);
+    if (query.limit) params.set("limit", String(query.limit));
+    return request<{
+      world_id: number;
+      count: number;
+      events: {
+        id: number;
+        tick: number;
+        type: string;
+        actor_id: number | null;
+        target_id: number | null;
+        payload: Record<string, unknown>;
+      }[];
+    }>(`/api/worlds/${id}/replay/events?${params.toString()}`);
+  },
+  replayDiff: (id: number, query: { a: number; b: number }) =>
+    request<{ world_id: number; diff: Record<string, unknown> }>(
+      `/api/worlds/${id}/replay/diff?a=${query.a}&b=${query.b}`,
+    ),
   participant: (id: number) => request<Participant>(`/api/worlds/${id}/participant`),
   participantJoin: (id: number) =>
     post(`/api/worlds/${id}/participant/join`) as unknown as Promise<Participant & { joined: boolean }>,

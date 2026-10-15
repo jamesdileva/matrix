@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S37 — Replay & Time Machine
-- Completed sprints: S01–S36, S06B (S36 done 2026-10-12)
+- **Next sprint:** S38 — World Persistence
+- Completed sprints: S01–S37, S06B (S37 done 2026-10-12)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -2813,4 +2813,67 @@ lineages at once.
 
 ### Commits
 - `47df667` — S36: reconstruction experiment — hidden ancestor, limited records, quantified failure profile [pushed]
+- `f91d952` — worklog: record S36 commit hash [pushed]
+
+---
+
+## S37 — Replay & Time Machine
+
+### Scope (2026-10-12)
+In: `app/simulation/replay.py` — the event-sourced replay engine
+(state at any tick, `events_between`, the timeline summary, the
+two-tick diff, and event-addressed state for logs whose events share
+a tick), the `EventRepository.load_for_replay` reader, the replay API
+(timeline, state, filtered events, one event, diff, culture), a
+console time-machine panel (scrubber, viewport, compare), the build
+event now carrying its material cost, tests and docs.
+Out: mutating history (a replay route is read-only by construction),
+and replaying a world whose seed is unknown (the log carries state,
+not generation).
+
+### Implementation
+- The log is the source of truth. Terrain is regenerated from the
+  world's seed — the world's generation is deterministic, so replaying
+  a seed rebuilds the ground the history walked on — and every other
+  fact is re-applied from events: ENTITY_ADDED/REMOVED, the spatial
+  actions (move, pick_up, drop/place with their payloads), gather
+  (the ledger's in), build (its cost now rides the event, so the
+  ledger's out replays too), remove, transfers, and births with the
+  culture they were handed.
+- Two jump granularities, because one does not fit every log: `tick`
+  for worlds that tick, and `event_id` for logs that don't — a
+  birth-only lineage lives entirely inside tick 0, so a tick address
+  cannot separate generation 4,000 from 5,000 but an event address
+  always can. Both are cached, so scrubbing back and forth is free
+  after the first pass.
+- Fidelity is reported, not assumed: every snapshot carries how many
+  events were applied and which types were not. WORLD_SEEDED and
+  POPULATION_SPAWN are honestly unapplied — they change no spatial
+  state — and the console renders a past moment in the same viewport
+  as the live world.
+
+### Verification
+- Tests: pytest **620 passed** (18 new: tick 0 is the seeded world;
+  moves replay in order; the state cache; fidelity with an unknown
+  event type; pick-up/drop and gather/build replay (conserving the
+  ledger now that builds carry their cost); births replaying carried
+  culture; the timeline summary; the diff; the API's timeline, state
+  shape, back-and-forth jumps, filtered events with a single-event
+  jump, the diff, culture, and the 404s; and **the roadmap's check: a
+  10,000-generation lineage jumped from generation 10,000 back to
+  generation 0 — the founder standing alone at its arrival — with
+  all 10,000 births inspectable between them and a middle jump
+  landing on exactly 5,002 entities**).
+- Live (dev API, worlds 94/141): the timeline (42 events, ticks
+  0–5), state at the origin and now, `diff 0→5` reporting 2 moved
+  entities, filtered action events at ticks 2–3, and single-event
+  jumps; fidelity 40 applied / WORLD_SEEDED + POPULATION_SPAWN
+  unapplied. The console's time-machine panel renders each
+  reconstruction in the standard viewport.
+- Roadmap S37 checklist: jump from Generation 10,000 back to
+  Generation 0 and inspect intermediate events ✅. The world behaves
+  like a time machine ✅.
+
+### Commits
+- (pending — not yet committed at time of writing)
 

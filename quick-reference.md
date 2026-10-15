@@ -569,6 +569,29 @@ confidence (a model's claim, or the scripted control's measured
 exact recovery). The study's profile is the sprint's end goal:
 historical reconstruction failure, quantified per record quality.
 
+## Replay & the time machine (S37+)
+
+```bash
+# the log's shape: ticks, event counts, births, generations
+curl -s "localhost:8000/api/worlds/1/replay/timeline"
+# jump: the world reconstructed at a tick, or immediately after one event
+curl -s "localhost:8000/api/worlds/1/replay/state?tick=500"
+curl -s "localhost:8000/api/worlds/1/replay/state?event_id=37"
+# inspect the intermediate history, and compare two moments
+curl -s "localhost:8000/api/worlds/1/replay/events?from_tick=100&to_tick=200&type=ACTION_EXECUTED"
+curl -s "localhost:8000/api/worlds/1/replay/diff?a=100&b=200"
+curl -s "localhost:8000/api/worlds/1/replay/event/37"
+```
+
+The log is the source of truth: terrain is regenerated from the
+world's seed (generation is deterministic), everything else is
+replayed from events — moves, pick-ups, drops, gathers (the build
+event carries its material cost), builds, births with the culture
+they carried. Fidelity is reported, not assumed: every snapshot says
+how many events were applied and which types were not. A console
+panel scrubs the timeline event by event and renders each
+reconstruction in the same viewport as the live world.
+
 ## Database (S02+)
 
 ```bash
