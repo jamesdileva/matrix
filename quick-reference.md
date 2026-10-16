@@ -592,6 +592,29 @@ how many events were applied and which types were not. A console
 panel scrubs the timeline event by event and renders each
 reconstruction in the same viewport as the live world.
 
+## World persistence (S38+)
+
+```bash
+# save the world now (kind=manual), or archive it
+curl -s -X POST "localhost:8000/api/worlds/1/snapshots?kind=manual"
+# the world's saves, newest first (bounded by ?limit, default 50)
+curl -s "localhost:8000/api/worlds/1/snapshots"
+# one snapshot's header
+curl -s "localhost:8000/api/worlds/1/snapshots/7"
+# bring a stopped world back - newest snapshot, or a chosen one
+curl -s -X POST "localhost:8000/api/worlds/1/restore"
+curl -s -X POST "localhost:8000/api/worlds/1/restore?snapshot_id=7"
+```
+
+A snapshot is the whole world as one row: `World.to_dict` plus the
+host's settings. The in-memory event log is deliberately excluded —
+the durable log lives in the `events` table — so a snapshot stays
+small however long the world runs. A running world autosaves every
+`FLOOD_AUTOSAVE_EVERY` ticks (default 500; 0 disables) and keeps only
+the newest `FLOOD_AUTOSAVE_KEEP` (default 10) autosaves; manual and
+archive saves are never pruned. On startup the server recovers every
+world that has a snapshot and resumes it at the newest save.
+
 ## Database (S02+)
 
 ```bash

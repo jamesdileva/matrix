@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     model_max_tokens: int | None = 512
     model_timeout_s: float = 30.0
 
+    # Persistence (S38). A running world autosaves every this many
+    # ticks; 0 disables autosave (manual and archive snapshots still
+    # work). Recovery on startup always reads the newest snapshot.
+    # Only the newest `autosave_keep` autosaves are retained; manual
+    # and archive snapshots are never pruned.
+    autosave_every: int = 500
+    autosave_keep: int = 10
+
     model_config = SettingsConfigDict(
         env_prefix="FLOOD_",
         env_file=".env",

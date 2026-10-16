@@ -182,6 +182,69 @@ async def delete_world(world_id: int, request: Request) -> dict:
     return {"id": world_id, "stopped": True}
 
 
+# ----------------------------------------------------------------------
+# Persistence (S38)
+# ----------------------------------------------------------------------
+
+
+@router.post("/worlds/{world_id}/snapshots", status_code=201)
+def save_world_snapshot(world_id: int, request: Request, kind: str = "manual") -> dict:
+    """Save the world now — the grid and everything it has become."""
+    host = _host(request, world_id)
+    if kind not in ("manual", "archive"):
+        raise HTTPException(status_code=400, detail=f"unknown snapshot kind {kind!r}")
+    snapshot_id = host.save(kind)
+    return {"world_id": world_id, "snapshot_id": snapshot_id, "kind": kind}
+
+
+@router.get("/worlds/{world_id}/snapshots")
+def list_world_snapshots(world_id: int, request: Request, limit: int = 50) -> dict:
+    from app.persistence.repositories import SnapshotRepository
+
+    _host(request, world_id)
+    rows = SnapshotRepository(
+        request.app.state.worlds.session_factory
+    ).list(world_id, limit=max(1, min(limit, 500)))
+    return {
+        "world_id": world_id,
+        "snapshots": [
+            {
+                "id": row.id,
+                "tick": row.tick,
+                "kind": row.kind,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.post("/worlds/{world_id}/restore", status_code=201)
+async def restore_world(
+    world_id: int, request: Request, snapshot_id: int | None = None
+) -> dict:
+    """Bring a stopped world back — from its newest snapshot, or a
+    chosen one. The world resumes exactly as it stood."""
+    try:
+        host = await request.app.state.worlds.resume(
+            world_id, snapshot_id, autostart=True
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _state(host)
+
+
+@router.get("/worlds/{world_id}/snapshots/{snapshot_id}")
+def get_world_snapshot(world_id: int, snapshot_id: int, request: Request) -> dict:
+    from app.persistence.repositories import SnapshotRepository
+
+    _host(request, world_id)
+    row = SnapshotRepository(request.app.state.worlds.session_factory).get(snapshot_id)
+    if row is None or row.world_id != world_id:
+        raise HTTPException(status_code=404, detail=f"snapshot {snapshot_id} not in world {world_id}")
+    return {"world_id": world_id, "snapshot": {"id": row.id, "tick": row.tick, "kind": row.kind}}
+
+
 @router.get("/worlds/{world_id}/agents")
 def list_agents(world_id: int, request: Request) -> dict:
     """S13: the world's live population.

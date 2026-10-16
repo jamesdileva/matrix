@@ -32,6 +32,17 @@ def _state(world: World) -> dict:
     return data
 
 
+def _spatial_state(world: World) -> dict:
+    """World state excluding logs and the budget ledger.
+
+    A rejected action still charges one action against the agent's
+    budget (S33): the ledger moves even when nothing else does.
+    """
+    data = _state(world)
+    data.pop("budgets", None)
+    return data
+
+
 # ----------------------------------------------------------------------
 # move
 # ----------------------------------------------------------------------
@@ -215,7 +226,7 @@ def test_place_requires_direction(actor_world):
 
 
 def test_invalid_actions_do_not_mutate_state(actor_world):
-    before = _state(actor_world)
+    before = _spatial_state(actor_world)
     bad_actions = [
         {"action": "teleport", "to": [0, 0]},  # unknown action
         {"action": "move"},  # missing direction
@@ -232,7 +243,7 @@ def test_invalid_actions_do_not_mutate_state(actor_world):
         assert result.ok is False, action
         assert result.reason is not None, action
 
-    assert _state(actor_world) == before
+    assert _spatial_state(actor_world) == before
 
 
 def test_unknown_actor_is_rejected_with_event(world):

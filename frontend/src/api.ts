@@ -258,7 +258,13 @@ export type Participant = {
   participant: { entity_id: number; position: { x: number; y: number } } | null;
 };
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+// S38: a saved world — the grid and everything it has become.
+export type WorldSnapshot = {
+  id: number;
+  tick: number;
+  kind: "manual" | "autosave" | "archive";
+  created_at: string | null;
+};async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
@@ -390,6 +396,20 @@ export const api = {
       `/api/worlds/${id}/replay/diff?a=${query.a}&b=${query.b}`,
     ),
   participant: (id: number) => request<Participant>(`/api/worlds/${id}/participant`),
+  snapshots: (id: number) =>
+    request<{ world_id: number; snapshots: WorldSnapshot[] }>(
+      `/api/worlds/${id}/snapshots`,
+    ),
+  saveSnapshot: (id: number, kind: "manual" | "archive" = "manual") =>
+    post(`/api/worlds/${id}/snapshots?kind=${kind}`) as unknown as Promise<{
+      world_id: number;
+      snapshot_id: number;
+      kind: string;
+    }>,
+  restoreSnapshot: (id: number, snapshotId?: number) =>
+    post(
+      `/api/worlds/${id}/restore${snapshotId ? `?snapshot_id=${snapshotId}` : ""}`,
+    ) as unknown as Promise<WorldState>,
   participantJoin: (id: number) =>
     post(`/api/worlds/${id}/participant/join`) as unknown as Promise<Participant & { joined: boolean }>,
   participantLeave: (id: number) =>

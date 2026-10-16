@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S38 — World Persistence
-- Completed sprints: S01–S37, S06B (S37 done 2026-10-12)
+- **Next sprint:** S39 — Multi-World Laboratory
+- Completed sprints: S01–S38, S06B (S38 done 2026-10-15)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -2876,4 +2876,69 @@ not generation).
 
 ### Commits
 - `e8613f8` — S37: replay & time machine — event-sourced reconstruction, tick/event jumps, diff, console panel [pushed]
+
+
+## S38 — World Persistence (2026-10-15)
+
+### Scope (2026-10-15)
+In: whole-world snapshots (`WorldSnapshotModel`, `world_snapshots` table,
+`SnapshotRepository` with manual/autosave/archive kinds), the serialization
+that carries every derived system (resources, structures, settlements, roads,
+zones, games, technology, budgets, populations, speeches), autosave on the
+tick loop, pruning of old autosaves, startup recovery of every world that has
+a snapshot, world resume from the newest or a chosen snapshot, the snapshot/
+restore API and a console panel, tests and docs.
+Out: migrating a live world between hosts, distributed locking, and pruning
+manual/archive snapshots (those are kept by intent).
+
+### Implementation
+- The whole civilization is one dictionary. `World.to_dict`/`from_dict` now
+  carry the derived systems and `_restore_derived` rebuilds them; a snapshot
+  is that dictionary plus the host's own settings (`brains`, `tps`, `kind`).
+  Restoring rebuilds the `World`, then attaches a fresh mind to each body
+  that came back with it (`Engine.adopt_agent` — the entities already exist,
+  so only a policy is bound), re-governs the population, and starts the loop.
+- Autosave rides the tick loop: every `autosave_every` ticks the host writes
+  an `autosave` snapshot and prunes to the newest `autosave_keep` (manual and
+  archive saves are never pruned). `FLOOD_AUTOSAVE_EVERY` (default 500) and
+  `FLOOD_AUTOSAVE_KEEP` (default 10) set the cadence.
+- Recovery is the restart path. On startup the registry finds every world
+  with a snapshot and rebuilds the newest one into a live host. `resume`
+  brings a stopped world back from its newest or a chosen snapshot; the API
+  exposes save/list/get/restore, and the console's snapshots panel saves,
+  lists and restores.
+
+### Bug found and fixed during live verification
+- The first live restart blew the world's database up to **76 GB**: snapshots
+  embedded the world's in-memory event log, which grows every tick, so each
+  save was larger than the last (11,113 snapshots averaging ~6.8 MB). The
+  durable log already lives in the `events` table, so `WorldHost.snapshot`
+  now excludes the in-memory log (carrying `next_event_id` forward so ids
+  continue cleanly) and autosave prunes. A 24×24 world autosaving every tick
+  now keeps 10 snapshots and a ~0.14 MB database. The runaway temp database
+  and logs were removed (freed ~71 GB).
+
+### Verification
+- Tests: pytest **633 passed** (13 new in `test_persistence.py`: the full
+  round trip across every derived system and its stability; a restored
+  settlement keeps its stock; the repository stores/ranks/kinds-validates and
+  prunes; autosave fires every N ticks, is off by default, and prunes to the
+  keep setting; **the roadmap's check: a world is run, the process is dropped
+  entirely, a fresh registry opens the same storage and recovers it at the
+  same tick with the same entities**; recovery returns nothing without a
+  snapshot; resume from a chosen (earlier) snapshot; a recovered world keeps
+  evolving; and a snapshot no longer grows with the event log). Two action
+  tests were updated so the "no mutation" check excludes the budget ledger,
+  which a rejected action legitimately charges (S33).
+- Live (dev API): created a scripted world, watched autosaves land every 2
+  ticks and cap at the keep setting; killed the real server process, confirmed
+  the port down, restarted, and saw the world recovered at its newest autosave
+  tick with its agents and seed intact, then ticking on. Disk stays bounded.
+- Roadmap S38 checklist: kill/restart server and recover the world ✅.
+  Civilizations persist beyond one session ✅.
+
+### Commits
+- `PENDING` — S38: world persistence — snapshots, autosave, recovery, resume,
+  console panel; fix unbounded snapshot growth [pushed]
+
 

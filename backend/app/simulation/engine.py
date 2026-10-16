@@ -66,6 +66,24 @@ class Engine:
             agent.population_size_provider = self.populations.population_size
         self._agents[agent.agent_id] = agent
 
+    def adopt_agent(self, agent: Agent) -> None:
+        """Bind a mind to an entity already present in the world (S38).
+
+        A world rebuilt from a snapshot brings its entities back with
+        it, so there is no body to add — only an Agent to attach to the
+        body that is already there. Unlike ``spawn_agent`` this never
+        calls ``world.add_entity``.
+        """
+        agent._world = self.world
+        agent.status = "alive"
+        if agent.population_id is None:
+            agent.population_id = self.population_id
+        if agent.population_id is not None:
+            self.world.set_population(agent.agent_id, agent.population_id)
+        if self.populations is not None:
+            agent.population_size_provider = self.populations.population_size
+        self._agents[agent.agent_id] = agent
+
     @property
     def agents(self) -> list[Agent]:
         """All agents, in ascending agent_id order."""

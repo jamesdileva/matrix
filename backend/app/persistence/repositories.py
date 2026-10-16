@@ -1,6 +1,6 @@
 """Repository layer: persistence for engine artifacts.
 
-The engine stays pure ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â this module subscribes to the EventBus
+The engine stays pure ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â this module subscribes to the EventBus
 (`DatabaseEventRecorder`) and answers event queries (`EventRepository`)
 for the API and future UI layers.
 """
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.config import model_configuration as active_model_configuration
 from app.persistence.models import (
+    WorldSnapshotModel,
     AgentModel,
     CheckpointModel,
     EventModel,
@@ -25,13 +26,13 @@ from app.simulation.events import Event, EventTypes
 class DatabaseEventRecorder:
     """EventBus subscriber that persists one world's events to the database.
 
-    Each event commits in its own short-lived session by default ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
+    Each event commits in its own short-lived session by default ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â
     simple and safe at current scale, and what live watched worlds want
     (the database is their durable archive).
 
     ``batch_size > 1`` is the scale switch (S12): events buffer in
     memory and commit in one transaction per batch. No session is held
-    between events ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â SQLite would lock out concurrent writers
+    between events ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â SQLite would lock out concurrent writers
     (checkpoints, agent rows). Callers that batch must ``flush()``; the
     experiment runner does, and a hard crash loses at most one batch.
     """
@@ -164,7 +165,7 @@ class ExperimentRepository:
     """Experiment rows: the durable record of a run's configuration.
 
     ``create`` stamps the active model configuration by default (guide:
-    "model configuration is recorded with experiment") ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â credentials
+    "model configuration is recorded with experiment") ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â credentials
     are never part of it (see app/models/config.py).
     """
 
@@ -207,11 +208,11 @@ class AgentRecorder:
     local -> global mapping for one world, seeded by the registry with
     the founding agents and extended by every birth it sees.
 
-    Only ``AGENT_BORN`` matters here ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â action and decision events are
+    Only ``AGENT_BORN`` matters here ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â action and decision events are
     ``DatabaseEventRecorder``'s job.
 
     Each birth commits in its own short session: the next birth's parent
-    is this child, so its global id must exist immediately ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â a held
+    is this child, so its global id must exist immediately ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â a held
     transaction would lock out concurrent writers for no gain.
     """
 
@@ -263,6 +264,72 @@ class AgentRecorder:
             session.flush()  # assigns the global id the parent of the next birth will need
             self._local_to_global[payload["child_id"]] = row.id
             session.commit()
+
+
+class SnapshotRepository:
+    """World snapshots: the durable form of a civilization (S38)."""
+
+    KINDS = ("manual", "autosave", "archive")
+
+    def __init__(self, session_factory) -> None:
+        self._session_factory = session_factory
+
+    def save(self, world_id: int, state: dict, kind: str = "manual") -> int:
+        """Write one snapshot; returns its id."""
+        if kind not in self.KINDS:
+            raise ValueError(f"unknown snapshot kind {kind!r}; expected one of {self.KINDS}")
+        with self._session_factory() as session:
+            row = WorldSnapshotModel(
+                world_id=world_id,
+                tick=state.get("tick", 0),
+                kind=kind,
+                state=state,
+            )
+            session.add(row)
+            session.commit()
+            return row.id
+
+    def latest(self, world_id: int, kind: str | None = None) -> WorldSnapshotModel | None:
+        """The newest snapshot, optionally of one kind."""
+        with self._session_factory() as session:
+            stmt = select(WorldSnapshotModel).where(WorldSnapshotModel.world_id == world_id)
+            if kind is not None:
+                stmt = stmt.where(WorldSnapshotModel.kind == kind)
+            return session.scalars(stmt.order_by(WorldSnapshotModel.id.desc()).limit(1)).first()
+
+    def list(self, world_id: int, limit: int | None = None) -> list[WorldSnapshotModel]:
+        """Every snapshot of a world, newest first (optionally capped)."""
+        with self._session_factory() as session:
+            stmt = (
+                select(WorldSnapshotModel)
+                .where(WorldSnapshotModel.world_id == world_id)
+                .order_by(WorldSnapshotModel.id.desc())
+            )
+            if limit is not None:
+                stmt = stmt.limit(limit)
+            return list(session.scalars(stmt))
+
+    def get(self, snapshot_id: int) -> WorldSnapshotModel | None:
+        with self._session_factory() as session:
+            return session.get(WorldSnapshotModel, snapshot_id)
+
+    def prune_autosaves(self, world_id: int, keep: int) -> int:
+        """Drop older autosaves beyond `keep`; manual and archive stay."""
+        with self._session_factory() as session:
+            rows = list(
+                session.scalars(
+                    select(WorldSnapshotModel)
+                    .where(
+                        WorldSnapshotModel.world_id == world_id,
+                        WorldSnapshotModel.kind == "autosave",
+                    )
+                    .order_by(WorldSnapshotModel.id.desc())
+                )
+            )
+            for row in rows[keep:]:
+                session.delete(row)
+            session.commit()
+            return max(0, len(rows) - keep)
 
 
 class CheckpointRepository:
@@ -321,7 +388,7 @@ class AgentRepository:
     def lineage(self, world_id: int) -> list[dict]:
         """One entry per recorded agent: local id, parent's local id, generation.
 
-        The chain's verifiable form ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â this is what the roadmap's
+        The chain's verifiable form ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â this is what the roadmap's
         0 -> 1 -> ... -> 100 check reads.
         """
         rows = self.for_world(world_id)

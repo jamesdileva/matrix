@@ -16,6 +16,7 @@ import { PopulationStats } from "./PopulationStats";
 import { PopulationsPanel } from "./PopulationsPanel";
 import { ReplayPanel } from "./ReplayPanel";
 import { SettlementsPanel } from "./SettlementsPanel";
+import { SnapshotsPanel } from "./SnapshotsPanel";
 import { WorldViewport } from "./WorldViewport";
 import { buttonStyle, colors, headingStyle, panelStyle } from "./theme";
 
@@ -135,6 +136,7 @@ export function WorldDashboard({ worldId, onWorldsChanged }: Props) {
           <PopulationsPanel worldId={worldId} />
           <SettlementsPanel worldId={worldId} />
           <GamesPanel worldId={worldId} participant={participant} />
+          <SnapshotsPanel worldId={worldId} onRestored={onWorldsChanged} />
           <ParticipantPanel worldId={worldId} />
           <Controls
             worldId={worldId}

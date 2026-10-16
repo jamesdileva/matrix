@@ -143,6 +143,18 @@ def _clean_budget_value(kind: str, value):
     return _clean(value, kind)
 
 
+
+def _budget_from_ledger(ledger: dict) -> "Budget":
+    """A ledger's full report (spent/cap/remaining) back into a Budget."""
+    from app.simulation.budget import KINDS, Budget
+
+    budget = Budget.from_dict(
+        {kind: (ledger.get(kind) or {}).get("cap") for kind in KINDS}
+    )
+    for kind in KINDS:
+        budget.spent[kind] = (ledger.get(kind) or {}).get("spent", 0)
+    return budget
+
 class World:
     """A bounded grid world with deterministic seeded generation.
 
@@ -1145,6 +1157,67 @@ class World:
             },
             "next_event_id": self._next_event_id,
             "events": [event.to_dict() for event in self._events],
+            # What a civilization *is*, beyond the grid (S38): the
+            # derived systems a snapshot must carry or a resumed world
+            # would be a field with amnesia.
+            "resources": {
+                str(actor_id): dict(ledger)
+                for actor_id, ledger in sorted(self._resources.items())
+            },
+            "structures": [
+                {
+                    "id": structure.id,
+                    "owner": structure.owner,
+                    "purpose": structure.purpose,
+                    "components": list(structure.components),
+                }
+                for structure in self.structures()
+            ],
+            "structure_of": {
+                str(object_id): structure_id
+                for object_id, structure_id in sorted(self._structure_of.items())
+            },
+            "settlements": [settlement.to_dict() for settlement in self.settlements],
+            "roads": [road.to_dict() for road in self.roads],
+            "zones": {str(object_id): settlement_id for object_id, settlement_id in self._zones.items()},
+            "games": [dict(game) for game in self.games],
+            "sessions": [session.to_dict() for session in self.sessions],
+            "recipes": [recipe.to_dict() for recipe in self._recipes.values()],
+            "patterns": [pattern.to_dict() for pattern in self._patterns.values()],
+            "known_recipes": {
+                str(entity_id): sorted(names)
+                for entity_id, names in sorted(self._known_recipes.items())
+            },
+            "known_patterns": {
+                str(entity_id): sorted(names)
+                for entity_id, names in sorted(self._known_patterns.items())
+            },
+            "teams": {
+                str(team_id): sorted(members) for team_id, members in sorted(self._teams.items())
+            },
+            "following": {
+                str(follower): target for follower, target in sorted(self._following.items())
+            },
+            "populations": {
+                str(entity_id): population_id
+                for entity_id, population_id in sorted(self._entity_populations.items())
+            },
+            "budgets": {
+                str(entity_id): budget.to_dict()
+                for entity_id, budget in sorted(self._budgets.items())
+            },
+            "experiment_budget": (
+                self._experiment_budget.to_dict() if self._experiment_budget else None
+            ),
+            "speeches": [
+                {
+                    "speaker": speaker,
+                    "position": spoke_at.to_dict(),
+                    "message": message,
+                    "tick": tick,
+                }
+                for speaker, spoke_at, message, tick in self._speeches
+            ],
         }
 
     @classmethod
@@ -1155,7 +1228,7 @@ class World:
             ]
         except KeyError as exc:
             raise ValueError(f"unknown terrain character in serialized world: {exc}") from exc
-        return cls(
+        world = cls(
             seed=data["seed"],
             width=data["width"],
             height=data["height"],
@@ -1174,6 +1247,142 @@ class World:
             events=[Event.from_dict(e) for e in data.get("events", [])],
             next_event_id=data.get("next_event_id"),
         )
+        world = cls(
+            seed=data["seed"],
+            width=data["width"],
+            height=data["height"],
+            tick=data["tick"],
+            terrain=terrain,
+            objects=[WorldObject.from_dict(o) for o in data["objects"]],
+            next_object_id=data["next_object_id"],
+            entities={
+                int(actor_id): Position.from_dict(pos)
+                for actor_id, pos in data.get("entities", {}).items()
+            },
+            inventory={
+                int(actor_id): list(items)
+                for actor_id, items in data.get("inventory", {}).items()
+            },
+            events=[Event.from_dict(e) for e in data.get("events", [])],
+            next_event_id=data.get("next_event_id"),
+        )
+        # The civilization's derived systems, restored where the
+        # snapshot carries them (S38). A world saved before these
+        # existed restores without them rather than failing.
+        world._restore_derived(data)
+        return world
+
+    def _restore_derived(self, data: dict) -> None:
+        """Rebuild the derived systems from their serialized forms."""
+        from app.simulation.budget import Budget
+        from app.simulation.games import GameSession
+        from app.simulation.settlement import Road, Settlement
+        from app.simulation.technology import Pattern, Recipe
+
+        for actor_id, ledger in (data.get("resources") or {}).items():
+            self._resources[int(actor_id)] = dict(ledger)
+        for structure in data.get("structures") or []:
+            self._structures[structure["id"]] = Structure(
+                id=structure["id"],
+                owner=structure.get("owner"),
+                purpose=structure.get("purpose"),
+                components=list(structure.get("components") or []),
+            )
+        for component in (data.get("structure_of") or {}).items():
+            self._structure_of[int(component[0])] = component[1]
+        for settlement_data in data.get("settlements") or []:
+            settlement = Settlement(
+                id=settlement_data["id"],
+                name=settlement_data["name"],
+                founder_id=settlement_data["founder_id"],
+                population_id=settlement_data.get("population_id"),
+                founded_tick=settlement_data.get("founded_tick", 0),
+                center=Position.from_dict(settlement_data["center"]),
+                members=set(settlement_data.get("members") or []),
+                home_ids=list(settlement_data.get("home_ids") or []),
+                storage_ids=list(settlement_data.get("storage_ids") or []),
+                zones={
+                    int(zone["object_id"]): zone["resource"]
+                    for zone in (settlement_data.get("zones") or [])
+                },
+                storage=dict(settlement_data.get("storage") or {}),
+                road_ids=list(settlement_data.get("road_ids") or []),
+            )
+            self._settlements[settlement.id] = settlement
+        for road_data in data.get("roads") or []:
+            road = Road(
+                id=road_data["id"],
+                settlement_id=road_data["settlement_id"],
+                owner_id=road_data["owner_id"],
+                cells=[Position.from_dict(cell) for cell in road_data.get("cells") or []],
+                created_tick=road_data.get("created_tick", 0),
+            )
+            self._roads[road.id] = road
+        for object_id, settlement_id in (data.get("zones") or {}).items():
+            self._zones[int(object_id)] = settlement_id
+        self._next_settlement_id = max(self._settlements, default=0) + 1
+        self._next_road_id = max(self._roads, default=0) + 1
+
+        for game in data.get("games") or []:
+            self._games[game["id"]] = dict(game)
+        self._next_game_id = max(self._games, default=0) + 1
+        for session_data in data.get("sessions") or []:
+            session = GameSession(
+                id=session_data["id"],
+                name=session_data["name"],
+                rules=session_data["rules"],
+                players=list(session_data.get("players") or []),
+                state=dict(session_data.get("state") or {}),
+                points={int(k): v for k, v in (session_data.get("points") or {}).items()},
+                turn_index=session_data.get("turn_index", 0),
+                rounds_completed=session_data.get("rounds_completed", 0),
+                status=session_data.get("status", "open"),
+                winner=session_data.get("winner"),
+                win_reason=session_data.get("win_reason"),
+                history=list(session_data.get("history") or []),
+            )
+            self._sessions[session.id] = session
+        self._next_session_id = max(self._sessions, default=0) + 1
+
+        for recipe_data in data.get("recipes") or []:
+            recipe = Recipe(
+                name=recipe_data["name"],
+                inputs=recipe_data.get("inputs") or {},
+                produces=recipe_data["produces"],
+                description=recipe_data.get("description", ""),
+            )
+            self._recipes[recipe.name] = recipe
+        for pattern_data in data.get("patterns") or []:
+            pattern = Pattern(
+                name=pattern_data["name"],
+                blocks=tuple(tuple(block) for block in pattern_data.get("blocks") or ()),
+                description=pattern_data.get("description", ""),
+            )
+            self._patterns[pattern.name] = pattern
+        for entity_id, names in (data.get("known_recipes") or {}).items():
+            self._known_recipes[int(entity_id)] = set(names)
+        for entity_id, names in (data.get("known_patterns") or {}).items():
+            self._known_patterns[int(entity_id)] = set(names)
+
+        for team_id, members in (data.get("teams") or {}).items():
+            self._teams[int(team_id)] = set(members)
+        for follower, target in (data.get("following") or {}).items():
+            self._following[int(follower)] = target
+        for entity_id, population_id in (data.get("populations") or {}).items():
+            self._entity_populations[int(entity_id)] = population_id
+        for entity_id, ledger in (data.get("budgets") or {}).items():
+            self._budgets[int(entity_id)] = _budget_from_ledger(ledger)
+        if data.get("experiment_budget"):
+            self._experiment_budget = _budget_from_ledger(data["experiment_budget"])
+        for speech in data.get("speeches") or []:
+            self._speeches.append(
+                (
+                    speech["speaker"],
+                    Position.from_dict(speech["position"]),
+                    speech["message"],
+                    speech.get("tick", 0),
+                )
+            )
 
     def render(self) -> str:
         """ASCII view of the world. Terrain chars, then objects, then

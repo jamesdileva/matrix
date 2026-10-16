@@ -1,7 +1,7 @@
 """Live-world hosting: an asyncio tick loop per world.
 
 The engine stays pure and synchronous; the host is the outer layer that
-makes a world *run* — advancing it on a timer so clients can watch, with
+makes a world *run* Ã¢â‚¬â€ advancing it on a timer so clients can watch, with
 pause/resume/manual-step for control and deterministic max-ticks runs for
 tests.
 
@@ -9,7 +9,7 @@ Worlds are scripted by default. `brains="model"` (S08) is an explicit
 opt-in: the registry then builds model agents from the configured
 provider, and the host advances them through `Engine.step_async`, which
 awaits the provider between the world advancing and each agent acting.
-A settings-configured provider alone never starts a model world — that
+A settings-configured provider alone never starts a model world Ã¢â‚¬â€ that
 decision belongs to whoever creates the world.
 """
 
@@ -39,13 +39,13 @@ BRAINS_MODEL = "model"
 _BRAINS = (BRAINS_SCRIPTED, BRAINS_MODEL)
 
 # The participant's entity id, well above engine agent ids (S20). The
-# participant is an entity like any other — it moves through the same
+# participant is an entity like any other Ã¢â‚¬â€ it moves through the same
 # validated dispatcher and appears in agents' observations.
 PARTICIPANT_ENTITY_ID = 1001
 
 
 def _gatherer_spot(world):
-    """A floor cell next to a tree — where the wood gatherer starts (S17)."""
+    """A floor cell next to a tree Ã¢â‚¬â€ where the wood gatherer starts (S17)."""
     for obj in world.objects:
         if obj.type != "tree" or obj.position is None:
             continue
@@ -56,6 +56,21 @@ def _gatherer_spot(world):
     return None
 
 
+
+def engine_population_id(state: dict) -> int | None:
+    """The population id a restored engine should carry.
+
+    Settlements record which population founded them; the first
+    settlement's population is the world's. A world with no
+    settlements has no recorded population and the engine runs
+    ungoverned, which is honest.
+    """
+    for settlement in state.get("settlements") or []:
+        population_id = settlement.get("population_id")
+        if population_id is not None:
+            return population_id
+    return None
+
 class WorldHost:
     def __init__(
         self,
@@ -65,6 +80,8 @@ class WorldHost:
         *,
         brains: str = BRAINS_SCRIPTED,
         provider: ModelProvider | None = None,
+        session_factory=None,
+        autosave_every: int = 0,
     ) -> None:
         if tps <= 0:
             raise ValueError(f"tick rate must be positive, got {tps}")
@@ -74,6 +91,10 @@ class WorldHost:
         self.brains = brains
         self.provider = provider
         self.paused = False
+        # S38: the world's durable store and its autosave cadence.
+        self._session_factory = session_factory
+        self.autosave_every = autosave_every
+        self._last_autosave = -1
         # S27: the lineage recorder for this world, kept here so a
         # population founded later (the registry's add_population) can
         # teach the recorder its members' global ids.
@@ -110,18 +131,69 @@ class WorldHost:
     async def advance_once(self) -> list:
         """Advance one tick, model-aware: awaits providers when present.
 
-        Works for both world kinds — scripted engines take the pure
+        Works for both world kinds Ã¢â‚¬â€ scripted engines take the pure
         synchronous path inside.
 
         S27: spawn rules fire first. A population that tops up backfills
         itself before the world advances, so a death (once deaths
         exist) and a top-up look the same to the rule.
+        S38: an autosave is taken every `autosave_every` ticks, so a
+        civilization survives its operator's impatience.
         """
         if self.engine.populations is not None:
             self.engine.populations.enforce_spawn_rules()
+        result = None
         if self.engine.has_model_policies:
-            return await self.engine.step_async()
-        return self.engine.step()
+            result = await self.engine.step_async()
+        else:
+            result = self.engine.step()
+        self._autosave()
+        return result
+
+    # ------------------------------------------------------------------
+    # Persistence (S38)
+    # ------------------------------------------------------------------
+
+    def snapshot(self, kind: str = "manual") -> dict:
+        """This world as data — one dictionary, every system.
+
+        The in-memory event log is deliberately excluded: it grows
+        without bound and the durable log already lives in the events
+        table (S05), so a snapshot that carried it would balloon with
+        every tick. The world's ``next_event_id`` rides along, so ids
+        continue cleanly after a restore.
+        """
+        state = self.engine.world.to_dict()
+        state.pop("events", None)
+        # The host's own settings ride along, so a restored world comes
+        # back with the cadence and brains it was saved with.
+        state["host"] = {"brains": self.brains, "tps": self.tps, "kind": kind}
+        return state
+
+    def save(self, kind: str = "manual") -> int:
+        """Write a snapshot; returns its id."""
+        from app.persistence.repositories import SnapshotRepository
+
+        return SnapshotRepository(self._session_factory).save(
+            self.world_id, self.snapshot(kind), kind
+        )
+
+    def _autosave(self) -> None:
+        if not self.autosave_every:
+            return
+        tick = self.engine.world.tick
+        if tick == 0 or tick % self.autosave_every:
+            return
+        if self._last_autosave == tick:
+            return
+        self._last_autosave = tick
+        self.save("autosave")
+        # Keep only the newest autosaves; manual and archive saves stay.
+        from app.persistence.repositories import SnapshotRepository
+
+        SnapshotRepository(self._session_factory).prune_autosaves(
+            self.world_id, keep=settings.autosave_keep
+        )
 
     async def stop(self) -> None:
         if self._task is not None and not self._task.done():
@@ -186,7 +258,7 @@ class WorldHost:
 
         The participant speaks through the same validated `say` action
         as anyone else, the target must be within earshot (local
-        speech), and the agent answers on the spot — its next decision
+        speech), and the agent answers on the spot Ã¢â‚¬â€ its next decision
         sees the message, so a model mind replies in kind. A scripted
         agent has nothing to say; the speech is still recorded and the
         reply is simply absent.
@@ -276,7 +348,7 @@ class WorldHost:
         """Sweep nearby agents into (or out of) following the participant.
 
         The operator's sweep, distinct from the `follow` action: agents
-        need not start adjacent — the engine walks them over. Unfollowing
+        need not start adjacent Ã¢â‚¬â€ the engine walks them over. Unfollowing
         an agent that is not following is simply not counted.
         """
         if self.participant is None:
@@ -320,10 +392,12 @@ class WorldRegistry:
     and a host ticking it. API routes read hosts from here.
     """
 
-    def __init__(self, session_factory) -> None:
+    def __init__(self, session_factory, *, autosave_every: int = 0) -> None:
         self.session_factory = session_factory
         self._session_factory = session_factory
         self._hosts: dict[int, WorldHost] = {}
+        # S38: how often a running world autosaves (0 disables it).
+        self.autosave_every = autosave_every
 
     def create(
         self,
@@ -427,7 +501,7 @@ class WorldRegistry:
         for population_id, rule in zip(population_ids, rules):
             manager.register(population_id, rule)
             manager.spawn_founding(population_id)
-            # S33: a rule may bound its members' compute — the budget
+            # S33: a rule may bound its members' compute Ã¢â‚¬â€ the budget
             # lands on every member as it arrives.
             if any(getattr(rule, key, None) is not None for key in BUDGET_KINDS):
                 for agent in manager.members(population_id):
@@ -464,7 +538,7 @@ class WorldRegistry:
             session.commit()
 
         # Births only happen after the founding generation, so the
-        # lineage recorder can subscribe last — it ignores every other
+        # lineage recorder can subscribe last Ã¢â‚¬â€ it ignores every other
         # event type.
         recorder = AgentRecorder(
             self._session_factory,
@@ -474,7 +548,15 @@ class WorldRegistry:
         )
         bus.subscribe(recorder)
 
-        host = WorldHost(world_id, engine, tps=tps, brains=brains, provider=provider)
+        host = WorldHost(
+            world_id,
+            engine,
+            tps=tps,
+            brains=brains,
+            provider=provider,
+            session_factory=self._session_factory,
+            autosave_every=self.autosave_every,
+        )
         host.agent_recorder = recorder
         self._hosts[world_id] = host
         if autostart:
@@ -537,6 +619,88 @@ class WorldRegistry:
 
     def remove(self, world_id: int) -> bool:
         return self._hosts.pop(world_id, None) is not None
+
+    # ------------------------------------------------------------------
+    # Recovery and resume (S38)
+    # ------------------------------------------------------------------
+
+    def _restore_host(self, world_id: int, state: dict, *, autostart: bool) -> WorldHost:
+        """Rebuild a live host from a snapshot's state."""
+        from app.simulation.world import World as _World
+
+        world = _World.from_dict(state)
+        host_meta = state.get("host") or {}
+        engine = Engine(world, population_id=engine_population_id(state))
+        population_id = engine.population_id
+        if population_id is not None:
+            engine.populations = PopulationManager(engine)
+        # The agents themselves are rebuilt from the world's entities:
+        # policy is the scripted rotation the registry always uses,
+        # because a snapshot carries the world, not the minds.
+        policies = [WanderPolicy(), ForagerPolicy(), GathererPolicy("wood")]
+        index = 0
+        for entity_id in sorted(world.entity_ids):
+            engine.adopt_agent(
+                Agent(agent_id=entity_id, policy=policies[index % len(policies)])
+            )
+            index += 1
+        host = WorldHost(
+            world_id,
+            engine,
+            tps=host_meta.get("tps", 6.0),
+            brains=host_meta.get("brains", BRAINS_SCRIPTED),
+            session_factory=self._session_factory,
+            autosave_every=self.autosave_every,
+        )
+        self._hosts[world_id] = host
+        if autostart:
+            host.start()
+        return host
+
+    def recover(self, *, autostart: bool = True) -> list[int]:
+        """Re-attach every world that has a snapshot: the restart path.
+
+        The newest snapshot wins, so a world autosaved seconds before a
+        crash comes back exactly where it stood.
+        """
+        from app.persistence.models import WorldSnapshotModel
+        from app.persistence.repositories import SnapshotRepository
+
+        snapshots = SnapshotRepository(self._session_factory)
+        with self._session_factory() as session:
+            world_ids = [
+                row
+                for (row,) in session.query(WorldSnapshotModel.world_id).distinct().all()
+            ]
+        recovered: list[int] = []
+        for world_id in world_ids:
+            if world_id in self._hosts:
+                continue
+            row = snapshots.latest(world_id)
+            if row is None:
+                continue
+            self._restore_host(world_id, row.state, autostart=autostart)
+            recovered.append(world_id)
+        return recovered
+
+    async def resume(
+        self, world_id: int, snapshot_id: int | None = None, *, autostart: bool = True
+    ):
+        """Bring a stopped world back from its newest (or a chosen) snapshot."""
+        from app.persistence.repositories import SnapshotRepository
+
+        snapshots = SnapshotRepository(self._session_factory)
+        row = (
+            snapshots.get(snapshot_id)
+            if snapshot_id is not None
+            else snapshots.latest(world_id)
+        )
+        if row is None or row.world_id != world_id:
+            raise ValueError(f"no snapshot for world {world_id}")
+        host = self._hosts.pop(world_id, None)
+        if host is not None:
+            await host.stop()
+        return self._restore_host(world_id, row.state, autostart=autostart)
 
     async def stop_all(self) -> None:
         for host in self.all():

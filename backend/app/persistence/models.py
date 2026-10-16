@@ -35,6 +35,7 @@ class WorldModel(Base):
     agents: Mapped[list["AgentModel"]] = relationship(back_populates="world")
     events: Mapped[list["EventModel"]] = relationship(back_populates="world")
     experiments: Mapped[list["ExperimentModel"]] = relationship(back_populates="world")
+    snapshots: Mapped[list["WorldSnapshotModel"]] = relationship(back_populates="world")
 
 
 class PopulationModel(Base):
@@ -172,3 +173,28 @@ class CheckpointModel(Base):
     )
 
     experiment: Mapped["ExperimentModel"] = relationship(back_populates="checkpoints")
+
+
+class WorldSnapshotModel(Base):
+    """A whole world as one row (S38).
+
+    The state is exactly ``World.to_dict`` — the grid and everything a
+    civilization is (resources, structures, settlements, games,
+    technology, budgets). Kinds distinguish intent: an autosave is
+    periodic and prunable, a manual save is deliberate, an archive is
+    kept for the record.
+    """
+
+    __tablename__ = "world_snapshots"
+    __table_args__ = (Index("ix_world_snapshots_world_tick", "world_id", "tick"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    world_id: Mapped[int] = mapped_column(ForeignKey("worlds.id"))
+    tick: Mapped[int] = mapped_column(default=0)
+    kind: Mapped[str] = mapped_column(String(32), default="manual")
+    state: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+    world: Mapped["WorldModel"] = relationship(back_populates="snapshots")

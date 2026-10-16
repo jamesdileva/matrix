@@ -14,7 +14,15 @@ from app.persistence.database import SessionLocal
 async def lifespan(app: FastAPI):
     from app.host import WorldRegistry
 
-    app.state.worlds = WorldRegistry(SessionLocal)
+    app.state.worlds = WorldRegistry(
+        SessionLocal, autosave_every=settings.autosave_every
+    )
+    # S38: the restart path — worlds with snapshots come back.
+    recovered = app.state.worlds.recover()
+    if recovered:
+        import logging
+
+        logging.getLogger("flood").info("recovered %d world(s): %s", len(recovered), recovered)
     yield
     await app.state.worlds.stop_all()
 
