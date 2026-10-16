@@ -2938,7 +2938,7 @@ manual/archive snapshots (those are kept by intent).
   Civilizations persist beyond one session ✅.
 
 ### Commits
-- `PENDING` — S38: world persistence — snapshots, autosave, recovery, resume,
+- `318a5d5` — S38: world persistence — snapshots, autosave, recovery, resume,
   console panel; fix unbounded snapshot growth [pushed]
 
 
