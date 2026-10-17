@@ -3100,7 +3100,8 @@ S32/S39 already compute — this sprint exposes, it does not invent.
   a standalone experimental platform ✅.
 
 ### Commits
-- (pending)
+- `265328d` — S40: research console — experiment API, persisted results,
+  unified console with experiments panel and template creation
 
 
 
