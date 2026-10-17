@@ -42,6 +42,10 @@ class CreateWorldRequest(BaseModel):
     # S33: the experiment-wide compute budget, shared by every agent.
     # Kinds omitted are unlimited; the constraint is opt-in.
     compute_budget: dict | None = None
+    # S39: found the world from a named template instead of ad hoc
+    # dimensions. When set, the template supplies width, height, agents
+    # and the population rotation; the seed stays the caller's.
+    template: str | None = None
 
 
 class SpawnRulePayload(BaseModel):
@@ -106,22 +110,40 @@ async def create_world(payload: CreateWorldRequest, request: Request) -> dict:
     # async: autostart must call asyncio.create_task, which needs the
     # event loop — a sync route would run in a worker thread without one.
     try:
-        host = request.app.state.worlds.create(
-            seed=payload.seed,
-            width=payload.width,
-            height=payload.height,
-            agents=payload.agents,
-            tps=payload.tick_rate,
-            autostart=payload.autostart,
-            brains=payload.brains,
-            populations=payload.populations,
-            compute_budget=payload.compute_budget,
-        )
+        if payload.template:
+            from app.experiments.multi_world import resolve_template
+
+            template = resolve_template(payload.template)
+            host = request.app.state.worlds.create(
+                **template.world_kwargs(seed=payload.seed, tps=payload.tick_rate),
+                autostart=payload.autostart,
+                brains=payload.brains,
+            )
+        else:
+            host = request.app.state.worlds.create(
+                seed=payload.seed,
+                width=payload.width,
+                height=payload.height,
+                agents=payload.agents,
+                tps=payload.tick_rate,
+                autostart=payload.autostart,
+                brains=payload.brains,
+                populations=payload.populations,
+                compute_budget=payload.compute_budget,
+            )
     except ValueError as exc:
-        # Unknown brains, a bad spawn rule, or a misconfigured model
-        # provider.
+        # Unknown brains, a bad spawn rule, an unknown template, or a
+        # misconfigured model provider.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _state(host)
+
+
+@router.get("/templates")
+def list_templates() -> dict:
+    """S39: the world recipes a laboratory can stamp out."""
+    from app.experiments.multi_world import TEMPLATES
+
+    return {"templates": [template.to_dict() for template in TEMPLATES.values()]}
 
 
 @router.get("/worlds")

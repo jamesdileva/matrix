@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S39 — Multi-World Laboratory
-- Completed sprints: S01–S38, S06B (S38 done 2026-10-15)
+- **Next sprint:** S40 — Research Console
+- Completed sprints: S01–S39, S06B (S39 done 2026-10-16)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -2940,5 +2940,75 @@ manual/archive snapshots (those are kept by intent).
 ### Commits
 - `318a5d5` — S38: world persistence — snapshots, autosave, recovery, resume,
   console panel; fix unbounded snapshot growth [pushed]
+
+## S39 - Multi-World Laboratory (2026-10-16)
+
+### Plan
+A single world is one history; science needs many. This sprint makes the
+recipe a first-class object and the comparison automatic: the same
+experiment is run across independent universes and every measure is
+summarized, so a result is a distribution rather than an anecdote.
+
+### Scope
+In: world templates (`WorldTemplate` + a built-in shelf), independent
+seeds per world, the multi-world study runner, cross-world analytics
+(per-measure n/mean/spread/range plus running totals), JSON export, a
+CLI, the template API and founding a live world from a template, tests
+and docs.
+Out: the research console that charts a study (that is S40), running
+worlds under different hosts or in parallel processes, and persisting
+each studied world (the study runs in memory and exports whole).
+
+### Implementation
+- `app/experiments/multi_world.py` is the laboratory. A `WorldTemplate`
+  names a recipe (size, founding minds in rotation, span); `TEMPLATES`
+  is the built-in shelf (`void`, `village`, `sparse`, `crowded`).
+  `world_kwargs` turns a template into the registry's `create`
+  arguments, so a live world and an offline study are the same world.
+- `run_world(template, seed)` builds a `World.generate` world, seats the
+  rotation as scripted minds (deterministic `Wander`/`Forager`/
+  `Gatherer` policies) on free floor, advances the ticks, and reads the
+  measures off the timeline and the world: actions, moves, gathers,
+  rejections, births, carried stock, objects left, structures,
+  settlements. The same seed reproduces the same history exactly.
+- `cross_world_analytics` summarizes each measure across the worlds
+  (n/mean/stdev/min/max) and totals them; `differing_measures` counts
+  how many measures actually vary — a fix for "is this run identical or
+  merely similar".
+- `run_study` varies one axis: `vary="seed"` holds the template and
+  gives each of N worlds its own seed (the roadmap's experiment);
+  `vary="template"` holds the seed and walks the recipe. The study is
+  recorded as an `ExperimentModel` (scenario `multi_world`), completed
+  on finish, and exported whole as one JSON file. A `--vary template`
+  CLI can name one template per world.
+- Live server: `GET /api/templates` lists the shelf and
+  `POST /api/worlds` accepts `template` to found a world from one
+  (unknown template is a 400).
+
+### Verification
+- Tests: pytest **649 passed** (16 new in `test_multi_world.py`:
+  template round-trip and shelf shape, unknown template refused,
+  `world_kwargs` carries the rotation as a spawn rule; a world runs and
+  reports every measure, the same seed reproduces and independent seeds
+  diverge; analytics summarize every measure and aggregate totals, and
+  identical worlds differ nowhere; **the roadmap's check: the same
+  experiment in 10 worlds — 10 distinct seeds, a full comparison**; the
+  study is deterministic, template-varying holds the seed, and the study
+  is recorded as a completed experiment and exported whole; the API
+  lists templates, founds a world from one, and 400s an unknown one).
+- Live (CLI): ran the study against the dev database — "multi-world
+  study 'lab-live': 10 worlds, varying the seed", 4/9 measures differing
+  (moves, gathers, stock, objects), exported to JSON.
+- Live (dev API): `GET /api/templates` returned `void, village, sparse,
+  crowded`; founding from `crowded` created a 12x12 world with 8 agents;
+  an unknown template returned 400. (The S38 migration was applied to
+  the dev DB first.)
+- Roadmap S39 checklist: run the same experiment in 10 worlds ✅.
+  Parallel artificial histories ✅.
+
+### Commits
+- `<pending>` — S39: multi-world laboratory — templates, independent
+  seeds, multi-world study, cross-world analytics, template API
+
 
 

@@ -615,6 +615,28 @@ the newest `FLOOD_AUTOSAVE_KEEP` (default 10) autosaves; manual and
 archive saves are never pruned. On startup the server recovers every
 world that has a snapshot and resumes it at the newest save.
 
+## Multi-world laboratory (S39+)
+
+```bash
+# from backend/ — the roadmap's check: the same experiment in 10 worlds
+.venv/Scripts/python -m app.experiments.multi_world --worlds 10 --template void --seed lab --export study.json
+# hold the seed, vary the recipe instead (one template per world)
+.venv/Scripts/python -m app.experiments.multi_world --vary template --templates void,village,crowded
+
+# the shelf, and founding a live world from one
+curl -s localhost:8000/api/templates
+curl -s -X POST localhost:8000/api/worlds -H "Content-Type: application/json" -d '{"seed":"a1","template":"crowded"}'
+```
+
+A `WorldTemplate` names a recipe (size, founding minds in rotation, span);
+`TEMPLATES` holds `void`, `village`, `sparse`, `crowded`. `run_world`
+stamps one out under a seed and reports a fixed set of measures; the same
+seed reproduces the history exactly and a new seed is a new universe.
+`run_study` varies one axis — the seed (default) or the template — runs N
+worlds, compares them with `cross_world_analytics` (per-measure
+n/mean/stdev/min/max plus totals) and exports the whole study as one JSON
+file.
+
 ## Database (S02+)
 
 ```bash
