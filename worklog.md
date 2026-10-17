@@ -3007,7 +3007,7 @@ each studied world (the study runs in memory and exports whole).
   Parallel artificial histories ✅.
 
 ### Commits
-- `<pending>` — S39: multi-world laboratory — templates, independent
+- `cbdfbad` — S39: multi-world laboratory — templates, independent
   seeds, multi-world study, cross-world analytics, template API
 
 
