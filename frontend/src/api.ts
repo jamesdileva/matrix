@@ -264,7 +264,70 @@ export type WorldSnapshot = {
   tick: number;
   kind: "manual" | "autosave" | "archive";
   created_at: string | null;
-};async function request<T>(path: string, init?: RequestInit): Promise<T> {
+};
+
+// S39: a world recipe the laboratory stamps out.
+export type WorldTemplate = {
+  name: string;
+  width: number;
+  height: number;
+  agents: number;
+  policies: string[];
+  ticks: number;
+  description: string;
+};
+
+// S40: an experiment — a run study, stored whole.
+export type ExperimentSummary = {
+  id: number;
+  name: string;
+  scenario: string;
+  seed: string;
+  status: string;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  has_result: boolean;
+};
+
+export type ScalarSummary = {
+  n: number;
+  mean: number;
+  stdev: number;
+  min: number;
+  max: number;
+};
+
+export type ExperimentDetail = ExperimentSummary & {
+  configuration: Record<string, unknown> | null;
+  result: {
+    comparison?: Record<string, unknown>;
+    runs?: unknown[];
+    measures?: string[];
+    [key: string]: unknown;
+  } | null;
+};
+
+// S40: a runnable study, as the console draws its form.
+export type ScenarioParam = {
+  name: string;
+  label: string;
+  type: "int" | "str" | "bool" | "choice";
+  default: unknown;
+  choices?: string[];
+  min?: number;
+  max?: number;
+  help?: string;
+};
+
+export type Scenario = {
+  name: string;
+  title: string;
+  description: string;
+  params: ScenarioParam[];
+};
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
@@ -291,7 +354,9 @@ export const api = {
     agents: number;
     brains: string;
     autostart: boolean;
+    template?: string | null;
   }) => post("/api/worlds", body) as unknown as Promise<WorldState>,
+  templates: () => request<{ templates: WorldTemplate[] }>("/api/templates"),
   world: (id: number) => request<WorldState>(`/api/worlds/${id}`),
   agents: (id: number) =>
     request<{ world_id: number; agents: AgentSummary[] }>(`/api/worlds/${id}/agents`),
@@ -435,4 +500,22 @@ export const api = {
   resume: (id: number) => post(`/api/worlds/${id}/resume`),
   step: (id: number) => post(`/api/worlds/${id}/step`) as unknown as Promise<WorldState>,
   remove: (id: number) => request(`/api/worlds/${id}`, { method: "DELETE" }),
+
+  // S40: the experiment laboratory.
+  scenarios: () => request<{ scenarios: Scenario[] }>("/api/scenarios"),
+  experiments: (scenario?: string) =>
+    request<{ experiments: ExperimentSummary[] }>(
+      `/api/experiments${scenario ? `?scenario=${encodeURIComponent(scenario)}` : ""}`,
+    ),
+  experiment: (id: number) => request<ExperimentDetail>(`/api/experiments/${id}`),
+  runExperiment: (body: {
+    scenario: string;
+    name?: string;
+    params: Record<string, unknown>;
+  }) =>
+    post("/api/experiments", body) as unknown as Promise<{
+      scenario: string;
+      study: { experiment_id: number; [key: string]: unknown };
+    }>,
+  exportExperimentUrl: (id: number) => `/api/experiments/${id}/export`,
 };

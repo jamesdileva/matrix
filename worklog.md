@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S40 — Research Console
-- Completed sprints: S01–S39, S06B (S39 done 2026-10-16)
+- **Next sprint:** S41 — Agent Genetics (Phase 11, optional)
+- Completed sprints: S01–S40, S06B (S40 done 2026-10-16)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -3009,6 +3009,100 @@ each studied world (the study runs in memory and exports whole).
 ### Commits
 - `cbdfbad` — S39: multi-world laboratory — templates, independent
   seeds, multi-world study, cross-world analytics, template API
+
+## S40 - Flood Research Console (2026-10-16)
+
+### Plan
+Every capability the platform needs already exists, but to use one you
+have to know which script to import: studies are CLI-only, snapshots and
+replay are separate panels, and there is no way to see an experiment's
+result without opening its JSON on disk. This sprint unifies the platform
+into one console and one experiment API so a user can **create, run,
+inspect, replay and export** an experiment from the UI — the roadmap's
+verification — without touching source.
+
+### Scope
+In:
+- **Experiment API** (`app/api/experiments.py`): a scenario catalog
+  (`GET /api/scenarios`), list/get experiments (`GET /api/experiments`,
+  `GET /api/experiments/{id}`), run a study by scenario name
+  (`POST /api/experiments`, dispatching to the S32 lineage study and the
+  S39 multi-world study), and export a stored result
+  (`GET /api/experiments/{id}/export`).
+- **Persisted results**: store each study's full result on its
+  `ExperimentModel` row (a new `result` JSON column + migration) so an
+  experiment can be inspected and exported long after it ran.
+- **Unified console**: top-level navigation in `App.tsx` — **Worlds**
+  (the existing per-world dashboard) and **Experiments** (new). A new
+  `ExperimentsPanel.tsx` lists experiments, runs one from a scenario
+  form (scenario, world count, template, seed, ticks), inspects the
+  cross-world comparison (per-measure n/mean/stdev/min/max + totals) and
+  per-run table, and exports the study JSON. Scenario creation gains a
+  template dropdown (S39 templates) in the world form.
+- Reach the already-built surfaces from the unified shell: populations,
+  lineages, metrics (replay timeline), replay, participant entry.
+- Tests (`test_experiments_api.py`), docs.
+
+Out: running studies in a background worker or streaming progress (studies
+are fast and synchronous), WebSocket push, and new analytics beyond what
+S32/S39 already compute — this sprint exposes, it does not invent.
+
+### Decisions
+1. **Persist full results** (settled): add a `result` JSON column to
+   `ExperimentModel` (+ migration) so inspect/export are durable and
+   cheap; studies are not re-run to be read.
+2. **Synchronous runs**: studies run inline in the request (a 10-world
+   study is ~seconds); no job queue this sprint.
+
+### Implementation
+- **ExperimentModel.result** (migration `05d1a026d80d`, after the S38
+  snapshots migration): the whole study is stored on its row, so inspect
+  and export read the database instead of re-running anything. Both
+  studies (`lineage_study`, `multi_world`) now write `row.result = study`
+  on completion.
+- **The Experiment API** (`app/api/experiments.py`). A scenario catalog
+  (`GET /api/scenarios`) describes each study and its knobs (`Param`:
+  name/label/type/default/choices/min/max/help) so the console can draw a
+  form; the multi-world template choice is resolved live from `TEMPLATES`.
+  `POST /api/experiments` validates the scenario and its parameters, then
+  dispatches to the study (S32 lineage, S39 multi-world) and returns the
+  whole study. `GET /api/experiments` (newest first, optional
+  `?scenario=`) and `GET /api/experiments/{id}` (with the stored result)
+  inspect; `GET /api/experiments/{id}/export` serves the study as a
+  downloadable JSON. `app.state.session_factory` is set in the lifespan.
+- **One console shell** (`App.tsx`): a top-level nav — **worlds** and
+  **experiments** — over the existing dashboard and a new
+  `ExperimentsPanel.tsx`. The panel lists studies (polled), runs one from
+  the scenario form (no source edits), shows the cross-world comparison
+  as a measure table when the result carries flat summaries, and offers
+  a full comparison/runs view and a JSON export download. The world form
+  gained a template dropdown (S39) that shows the recipe it will stamp.
+
+### Verification
+- Tests: pytest **660 passed** (11 new in `test_experiments_api.py`: the
+  catalog lists both studies, every scenario describes its knobs, the
+  template choice is live from `TEMPLATES`; **the roadmap's check — run a
+  study over HTTP, list it, inspect its stored result, and export it as
+  an attachment whose document matches**; a lineage study runs and can be
+  renamed; the list filters by scenario; unknown scenario 404, unknown
+  parameter 400, bad study request 400, missing experiment/export 404).
+- Frontend: `npm run build` clean (`tsc --noEmit` + vite).
+- Live (dev API): `GET /api/scenarios` returned `multi_world,
+  lineage_study` with live template choices; ran a 10-world multi-world
+  study (`console-live`, 4/9 measures differing); it appeared in
+  `GET /api/experiments` with `has_result`; `GET /api/experiments/{id}`
+  returned all nine measures; the export downloaded 7988 bytes with
+  `Content-Disposition: attachment; filename="experiment-125.json"` and
+  the matching study; replay confirmed on a stepped world (21 events to
+  tick 5). (The S40 migration was applied to the dev DB first.)
+- Roadmap S40 checklist: a user can create, run, inspect, replay and
+  export an experiment without editing source code ✅. Flood is usable as
+  a standalone experimental platform ✅.
+
+### Commits
+- (pending)
+
+
 
 
 

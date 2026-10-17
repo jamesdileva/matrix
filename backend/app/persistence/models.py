@@ -135,6 +135,9 @@ class ExperimentModel(Base):
     seed: Mapped[str] = mapped_column(String(120))
     status: Mapped[str] = mapped_column(String(32), default="created")
     model_configuration: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # S40: the whole study result, stored so it can be inspected and
+    # exported long after it ran (never by re-running).
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     compute_budget: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     generation_limit: Mapped[int | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(

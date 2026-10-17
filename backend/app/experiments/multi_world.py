@@ -354,6 +354,7 @@ def run_study(
         row.status = "completed"
         row.finished_at = datetime.now(timezone.utc)
         row.model_configuration = {**config, "comparison": comparison}
+        row.result = study
         session.commit()
 
     if export_path:

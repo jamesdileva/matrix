@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.experiments import router as experiments_router
 from app.api.health import router as health_router
 from app.api.replay import router as replay_router
 from app.api.worlds import router as worlds_router
@@ -14,6 +15,9 @@ from app.persistence.database import SessionLocal
 async def lifespan(app: FastAPI):
     from app.host import WorldRegistry
 
+    # S40: the experiments API reads and writes studies through the same
+    # storage the worlds use.
+    app.state.session_factory = SessionLocal
     app.state.worlds = WorldRegistry(
         SessionLocal, autosave_every=settings.autosave_every
     )
@@ -39,3 +43,4 @@ app.add_middleware(
 app.include_router(health_router, prefix="/api")
 app.include_router(worlds_router, prefix="/api")
 app.include_router(replay_router, prefix="/api")
+app.include_router(experiments_router, prefix="/api")

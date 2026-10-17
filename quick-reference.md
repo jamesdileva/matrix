@@ -637,6 +637,27 @@ worlds, compares them with `cross_world_analytics` (per-measure
 n/mean/stdev/min/max plus totals) and exports the whole study as one JSON
 file.
 
+## Experiment API (S40+)
+
+```bash
+# the scenario catalog (each study and its knobs)
+curl -s localhost:8000/api/scenarios
+# run a study over HTTP (multi_world or lineage_study)
+curl -s -X POST localhost:8000/api/experiments -H "Content-Type: application/json" \
+  -d '{"scenario":"multi_world","name":"my-study","params":{"worlds":10,"template":"void","seed":"lab","ticks":30}}'
+# list studies (newest first; optional ?scenario=)
+curl -s localhost:8000/api/experiments
+# inspect one, with its stored result
+curl -s localhost:8000/api/experiments/1
+# export the whole study as a downloadable JSON
+curl -s -OJ localhost:8000/api/experiments/1/export
+```
+
+Every study is an `experiments` row that now keeps its whole result, so
+inspect and export read the database — nothing is re-run to be read. The
+console's **experiments** tab lists studies, runs one from the scenario
+form, shows the cross-world comparison and downloads the export.
+
 ## Database (S02+)
 
 ```bash

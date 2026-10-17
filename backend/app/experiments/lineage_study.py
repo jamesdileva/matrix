@@ -340,6 +340,7 @@ def run_study(
             "comparison": comparison,
             "run_experiment_ids": [record["experiment_id"] for record in run_records],
         }
+        row.result = study
         session.commit()
 
     if export_path:
