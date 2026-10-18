@@ -3303,7 +3303,8 @@ model-provider language generation, and replay reconstructing lexicons
   `WORD_INVENTED`/`WORD_ADOPTED` event.
 
 ### Commits
-- Pending.
+- `2976fb5` — S42: language evolution — invented symbols, per-agent
+  lexicons, learning, language API
 
 
 
