@@ -75,6 +75,9 @@ class EventTypes:
     # S27: populations. A group coming to be — founded, or a new
     # member arriving under its spawn rule — is a fact too.
     POPULATION_SPAWN = "POPULATION_SPAWN"
+    # S41: genetics. The genome a child inherited, and the mutations that
+    # changed it, are facts too — a lineage's drift is on the timeline.
+    GENES_INHERITED = "GENES_INHERITED"
 
 
 @dataclass(frozen=True)

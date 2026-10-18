@@ -146,6 +146,14 @@ def list_templates() -> dict:
     return {"templates": [template.to_dict() for template in TEMPLATES.values()]}
 
 
+@router.get("/genetics")
+def genetics_library() -> dict:
+    """S41: the gene shelf — every agent's bounded genome, described."""
+    from app.simulation.genetics import mutation_catalog
+
+    return mutation_catalog()
+
+
 @router.get("/worlds")
 def list_worlds(request: Request) -> dict:
     worlds = [
@@ -366,6 +374,8 @@ def get_agent(world_id: int, agent_id: int, request: Request) -> dict:
             "knowledge": agent.knowledge,
             "cultural_artifacts": agent.cultural_artifacts,
         },
+        # S41: this agent's bounded genome.
+        "genome": agent.genome.to_dict(),
         # S30: the community this agent belongs to (or None).
         "settlement": host.engine.world.settlement_view(agent.agent_id),
     }
@@ -393,6 +403,14 @@ def get_agent_lineage(world_id: int, agent_id: int, request: Request) -> dict:
     originals = next((list(m.knowledge) for m in chain if m.knowledge), [])
     original_tokens = [_tokens(fact) for fact in originals]
 
+    # S41: the mutation recorded at each birth, keyed by child id.
+    mutations_by_child: dict[int, list] = {}
+    for event in host.engine.world.events:
+        if event.type == EventTypes.GENES_INHERITED and event.target_id is not None:
+            mutations_by_child[event.target_id] = list(
+                event.payload.get("mutations") or []
+            )
+
     members = []
     for member in chain:
         message = None
@@ -412,6 +430,8 @@ def get_agent_lineage(world_id: int, agent_id: int, request: Request) -> dict:
                 "knowledge_count": len(member.knowledge),
                 "knowledge": list(member.knowledge),
                 "traits": member.traits,
+                "genome": member.genome.to_dict(),
+                "mutations": mutations_by_child.get(member.agent_id, []),
                 "artifacts_count": len(member.cultural_artifacts),
                 "inheritance_message": message,
                 "drift": _generation_metrics(

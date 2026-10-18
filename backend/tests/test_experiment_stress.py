@@ -149,10 +149,21 @@ class TestStressRun:
             world_id = session.get(ExperimentModel, report["experiment_id"]).world_id
 
         event_repository = EventRepository(engine)
-        assert event_repository.count(world_id) == STRESS_SMALL * 2 + 1
-        # (STRESS_SMALL AGENT_BORN + STRESS_SMALL ENTITY_ADDED + founder ENTITY_ADDED)
-        born = event_repository.recent(world_id, limit=50, event_type="AGENT_BORN")
+        # STRESS_SMALL births, each an AGENT_BORN + an ENTITY_ADDED, plus
+        # the founder's ENTITY_ADDED. S41: a birth that mutated also
+        # carries a GENES_INHERITED event, so the total is that plus the
+        # recorded mutations.
+        born = event_repository.recent(
+            world_id, limit=STRESS_SMALL + 5, event_type="AGENT_BORN"
+        )
+        assert len(born) == STRESS_SMALL
         assert all(row.type == "AGENT_BORN" for row in born)
+
+        genes = event_repository.recent(
+            world_id, limit=STRESS_SMALL * 2, event_type="GENES_INHERITED"
+        )
+        assert len(genes) <= STRESS_SMALL
+        assert event_repository.count(world_id) == STRESS_SMALL * 2 + 1 + len(genes)
 
         agent_repository = AgentRepository(session_factory)
         lineage = agent_repository.lineage(world_id)

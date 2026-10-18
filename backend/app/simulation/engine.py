@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import copy
 import math
+import random
 import time
 
 from app.simulation.actions import ActionResult
@@ -50,6 +51,10 @@ class Engine:
         # entities (the world's); this one is the run's ceiling.
         self.budget = budget
         self._agents: dict[int, Agent] = {}
+        # Genetics (S41): births mutate the genome through this RNG. It is
+        # seeded from the world, so a world's genetic history is a
+        # deterministic function of its seed and the order of its births.
+        self._rng = random.Random(f"{world.seed}:genetics")
 
     def spawn_agent(self, agent: Agent, position: Position) -> None:
         agent.spawn(self.world, position)
@@ -171,6 +176,11 @@ class Engine:
         # neither the parent's intent nor this event's payload can
         # alias the child's future edits.
         child.traits = copy.deepcopy(package.traits)
+        # Genetics (S41): the genome is inherited automatically — the
+        # parent's genome, mutated by at most a step per gene and clamped
+        # to range. The parent cannot forge it; the mutation record is the
+        # trace of what changed.
+        child.genome, mutations = parent.genome.inherit(self._rng)
         # Cumulative culture (S29): the parent's discoveries join the
         # package's knowledge. Technology learned in the world outlives
         # the agent that learned it — this is the join that makes
@@ -208,9 +218,36 @@ class Engine:
                 "position": child_position.to_dict(),
                 "goal": child.goal,
                 "inheritance": package.as_dict(),
+                # Genetics (S41): the child's genome and the exact
+                # mutations that produced it travel with the birth.
+                "genome": child.genome.to_dict(),
+                "mutations": mutations,
             },
         )
+        if mutations:
+            # A dedicated fact for the genetic change (S41): the birth
+            # already carries the genome, but a mutation is its own event
+            # so a lineage's drift is a queryable timeline, not a parse.
+            self.world._add_event(
+                EventTypes.GENES_INHERITED,
+                actor_id=parent.agent_id,
+                target_id=child.agent_id,
+                payload={
+                    "parent_id": parent.agent_id,
+                    "child_id": child.agent_id,
+                    "generation": child.generation,
+                    "genome": child.genome.to_dict(),
+                    "mutations": mutations,
+                },
+            )
         return child
+
+    def mutations_of(self, agent_id: int) -> list[dict]:
+        """The recorded mutations of one birth, or [] for a founder (S41)."""
+        for event in reversed(self.world.events):
+            if event.type == EventTypes.GENES_INHERITED and event.target_id == agent_id:
+                return list(event.payload.get("mutations") or [])
+        return []
 
     def ancestors(self, agent_id: int) -> list[Agent]:
         """The lineage from the root down to `agent_id` (inclusive)."""

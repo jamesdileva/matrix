@@ -658,6 +658,22 @@ inspect and export read the database — nothing is re-run to be read. The
 console's **experiments** tab lists studies, runs one from the scenario
 form, shows the cross-world comparison and downloads the export.
 
+## Agent genetics (S41+)
+
+```bash
+# the gene shelf: names, bounds, defaults, max step, mutation rate
+curl -s localhost:8000/api/genetics
+# an agent's genome (and its birth mutations via the lineage route)
+curl -s localhost:8000/api/worlds/1/agents/1 | jq .genome
+curl -s localhost:8000/api/worlds/1/agents/1/lineage | jq '.chain[] | {id, genome, mutations}'
+```
+
+Every agent has a bounded genome (curiosity, diligence, sociability,
+boldness, patience). A child inherits the parent's genome mutated by at
+most 0.05 per gene with a 0.25 chance, always clamped to [0, 1]; every
+net change is recorded on the `AGENT_BORN` and `GENES_INHERITED` events.
+Drift is deterministic per world seed.
+
 ## Database (S02+)
 
 ```bash

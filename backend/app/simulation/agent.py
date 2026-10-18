@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from app.simulation.actions import DIRECTIONS, ActionResult
+from app.simulation.genetics import Genome
 from app.simulation.inheritance import InheritancePackage
 from app.simulation.memory import AgentMemory
 from app.simulation.world import Position, World
@@ -69,6 +70,11 @@ class Agent:
     cultural_artifacts: list = field(default_factory=list)
     inheritance_received: dict | None = None
     pending_inheritance: dict | None = None
+    # Genetics (S41): the agent's own bounded genome, inherited from its
+    # parent with small mutations and otherwise untouched by intent. The
+    # authored `traits` package above stays free-form; the genome is
+    # biological and automatic.
+    genome: Genome = field(default_factory=Genome.default)
     # Short memory of recent action outcomes. Agent state, like the
     # goal — folded into the observation (guide §6's precedent:
     # current_goal), because a decision that cannot see what just
@@ -182,6 +188,9 @@ class Agent:
             "traits": copy.deepcopy(self.traits),
             "knowledge": list(self.knowledge),
             "cultural_artifacts": list(self.cultural_artifacts),
+            # Genetics (S41): the agent's own bounded genome — a mind that
+            # cannot see its own dispositions cannot weigh acting on them.
+            "genome": self.genome.to_dict(),
             # Shared observations (S25): where your teammates stand
             # and what they are after — cooperation needs a shared
             # picture, not telepathy.

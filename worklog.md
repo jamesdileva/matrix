@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S41 — Agent Genetics (Phase 11, optional)
-- Completed sprints: S01–S40, S06B (S40 done 2026-10-16)
+- **Next sprint:** S42 — Language Evolution
+- Completed sprints: S01–S41, S06B (S41 done 2026-10-16)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -3102,6 +3102,98 @@ S32/S39 already compute — this sprint exposes, it does not invent.
 ### Commits
 - `265328d` — S40: research console — experiment API, persisted results,
   unified console with experiments panel and template creation
+
+## S41 - Agent Genetics (2026-10-16)
+
+### Plan
+Inheritance today carries a free-form `traits` dict the parent authors;
+nothing changes on its own and nothing is bounded. This sprint gives
+agents a **genome**: a fixed set of numeric genes that pass from parent
+to child with small, bounded mutations. That turns a lineage into a
+slowly drifting thing — the substrate a real genetics experiment needs —
+without ever letting a trait run away or an inherited value appear from
+nowhere.
+
+### Scope
+In:
+- `app/simulation/genetics.py`: the gene shelf (`GeneSpec`: name, range,
+  default, max step), a `Genome` (tolerant parse, clamp, deep-safe
+  copy), and `Genome.inherit(rng)` — each gene mutates by at most its
+  step with a small per-gene chance, always clamped to its range, with
+  every change returned as a recorded mutation.
+- `Agent.genome` (default genome for founders) and `observe()` showing
+  it, so a mind can see its own biology.
+- `Engine.create_child` inherits the genome deterministically (a
+  per-engine RNG seeded from the world seed), records the child genome
+  and its mutations on the `AGENT_BORN` event, and emits a
+  `GENES_INHERITED` event.
+- API: `GET /api/genetics` (the gene shelf + mutation defaults); genome
+  on the agent detail; genome + birth mutations on each lineage member.
+- Tests, docs.
+
+Out: natural selection / fitness (nothing selects on genes yet),
+persisting agent state through world snapshots (a pre-existing S38
+boundary — a snapshot carries the world, not the minds), and genes
+driving scripted behaviour (minds may read the genome; the scripted
+policies do not yet act on it).
+
+### Decisions
+1. **Genes are bounded and clamped at every step**, never merely at
+   birth, so "traits remain bounded" is a property of `inherit`, not a
+   hope about callers.
+2. **Mutation is deterministic per seed** via `Engine`'s RNG, so a
+   lineage study reproduces exactly (roadmap's determinism contract).
+3. **Genome is biological, `traits` stays authored.** The existing
+   `traits` package part is untouched; the genome is a separate,
+   automatic inheritance that the parent cannot forge.
+
+### Implementation
+- **`app/simulation/genetics.py`**: a `GeneSpec` shelf (curiosity, diligence,
+  sociability, boldness, patience — all in [0, 1], max step 0.05) and a
+  `Genome` whose every value passes through `GeneSpec.clamp`. `from_dict`
+  is tolerant (unknown genes dropped, missing filled from defaults,
+  out-of-range clamped, bools ignored); `distance` is the mean absolute
+  gene difference; `inherit(rng, mutation_rate=0.25)` mutates each gene
+  with that chance by at most its step, clamps, and returns the child
+  genome plus every net change as `{"gene", "from", "to"}`.
+- **`Agent.genome`** defaults to the founder genome and appears in
+  `observe()` under `genome`, so a mind can see its own dispositions. The
+  authored `traits` package is untouched.
+- **`Engine.create_child`** inherits the genome from the parent through a
+  per-engine RNG seeded from the world seed (`f"{seed}:genetics"`), so
+  drift is deterministic per world. The `AGENT_BORN` payload now carries
+  `genome` and `mutations`; a birth that mutated also emits a
+  `GENES_INHERITED` event with the same record. `Engine.mutations_of(agent_id)`
+  reads a birth's mutations back.
+- **API**: `GET /api/genetics` returns the gene shelf and mutation rate;
+  the agent detail carries `genome`; each lineage member carries its
+  `genome` and the `mutations` recorded at its birth.
+- Tests fix up: the S31 stress test's exact event-count assertion now
+  accounts for `GENES_INHERITED` events (count by type instead of a magic
+  total).
+
+### Verification
+- Tests: pytest **678 passed** (18 new in `test_genetics.py`: the shelf
+  and tolerant parses; **traits remain bounded** over 2,000 generations
+  and at an edge; **inheritance is traceable** — a child changes by at
+  most a step, the engine descends from the parent, the birth records
+  both genomes, founders have no mutations; **mutations are recorded** on
+  both events and match the actual gene changes; determinism — the same
+  seed reproduces the same drift; the library over HTTP lists the genes,
+  the agent detail carries a genome, and a lineage member carries genome
+  + mutations).
+- Live (dev API): `GET /api/genetics` returned the five genes and rate
+  0.25; a 13-member lineage (founder + 12 births) drifted slowly
+  (curiosity held at 0.6; diligence 0.500→0.478, sociability
+  0.500→0.518, boldness 0.400→0.406, patience 0.500→0.526), recorded 17
+  mutations, and every gene stayed in [0, 1].
+- Roadmap S41 checklist: traits remain bounded ✅. Inheritance is
+  traceable ✅. Mutations are recorded ✅.
+
+### Commits
+- (pending)
+
+
 
 
 
