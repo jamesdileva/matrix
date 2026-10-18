@@ -3191,7 +3191,8 @@ policies do not yet act on it).
   traceable ✅. Mutations are recorded ✅.
 
 ### Commits
-- (pending)
+- `af4dd4e` — S41: agent genetics — bounded genome, deterministic
+  inheritance, recorded mutations, genetics API
 
 
 
