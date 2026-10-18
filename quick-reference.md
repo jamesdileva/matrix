@@ -674,6 +674,39 @@ most 0.05 per gene with a 0.25 chance, always clamped to [0, 1]; every
 net change is recorded on the `AGENT_BORN` and `GENES_INHERITED` events.
 Drift is deterministic per world seed.
 
+## Language (S42+)
+
+```bash
+# every repertoire, the shared words, agreement and change count
+curl -s localhost:8000/api/worlds/1/language | jq
+# speak in agent 1's own language (invents names for unknown concepts)
+curl -s -X POST localhost:8000/api/worlds/1/language/speak \
+  -H "Content-Type: application/json" \
+  -d '{"speaker_id":1,"message":"water stone tree"}'
+# agent 2 adopts the words from agent 1's latest utterance
+curl -s -X POST localhost:8000/api/worlds/1/language/learn \
+  -H "Content-Type: application/json" \
+  -d '{"listener_id":2,"speaker_id":1}'
+# the same, through the generic action path
+curl -s -X POST localhost:8000/api/worlds/1/actions \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id":1,"action":{"action":"speak","message":"water"}}'
+```
+
+Each agent has its own lexicon. `speak` replaces concept words with that
+speaker's invented symbols (naming missing ones on the spot) and emits
+`WORD_INVENTED` + `SPEECH`; `learn` adopts the symbols in the speaker's
+latest utterance and emits `WORD_ADOPTED`. `messages_for` shows the
+listener's `understanding`, which is the plain text only for words that
+listener knows. `say` remains plain speech. Agreement is mean pairwise
+Jaccard over concept→symbol pairs, so it rises only when agents agree on
+the actual symbol. The S42 study:
+
+```bash
+cd backend
+.venv/Scripts/python -c "from app.experiments.language import run_language_experiment as r; print(r()['agreement_by_round'])"
+```
+
 ## Database (S02+)
 
 ```bash

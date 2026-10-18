@@ -25,6 +25,7 @@ from app.simulation.events import Event, EventTypes
 from app.simulation.budget import AGENT_KINDS, Budget, KINDS, LimitExceeded
 from app.simulation.games import GameSession, validate_rules
 from app.simulation.geometry import Position
+from app.simulation.language import Lexicon, concepts_in
 from app.simulation.technology import (
     BASE_RECIPES,
     TOOLS,
@@ -220,8 +221,16 @@ class World:
         self._structures: dict[int, Structure] = {}
         self._next_structure_id = 1
         self._structure_of: dict[int, int] = {}  # object id -> structure id
-        # Rolling speech buffer (S21): (speaker, position, message, tick).
-        self._speeches: list[tuple[int, Position, str, int]] = []
+        # Rolling speech buffer (S21): (speaker, position, message, tick,
+        # symbols). The symbols map is the S42 learnable part of an
+        # utterance; it rides in the buffer so a restored snapshot can
+        # still teach, even though snapshots drop the event log.
+        self._speeches: list[tuple[int, Position, str, int, dict]] = []
+        # Language (S42): each entity's own lexicon of invented symbols.
+        # Empty until an agent speaks; the world invents names through
+        # `speak` and listeners adopt them through `learn`.
+        self._lexicons: dict[int, Lexicon] = {}
+        self._language_rng = random.Random(f"{self.seed}:language")
         # Routed letters (S28): named, group and global messages, as
         # dicts — {sender, kind, address, message, tick, recipients}.
         # The recipients are frozen at send time; leaving the world
@@ -528,7 +537,7 @@ class World:
             actor_id=actor_id,
             payload={"message": message, "position": position.to_dict()},
         )
-        self._speeches.append((actor_id, position, message, self.tick))
+        self._speeches.append((actor_id, position, message, self.tick, {}))
         if len(self._speeches) > SPEECH_BUFFER:
             del self._speeches[: len(self._speeches) - SPEECH_BUFFER]
         return event
@@ -545,14 +554,20 @@ class World:
         if position is None:
             return []
         heard = []
-        for speaker, spoke_at, message, tick in self._speeches:
+        listener_lexicon = self._lexicons.get(actor_id)
+        for speaker, spoke_at, message, tick, _symbols in self._speeches:
             if speaker == actor_id:
                 continue  # you do not hear yourself
             if abs(position.x - spoke_at.x) + abs(position.y - spoke_at.y) <= SPEECH_RADIUS:
-                heard.append(
-                    {"from": speaker, "message": message, "tick": tick, "kind": "say",
-                     "distance": abs(position.x - spoke_at.x) + abs(position.y - spoke_at.y)}
-                )
+                entry = {
+                    "from": speaker, "message": message, "tick": tick, "kind": "say",
+                    "distance": abs(position.x - spoke_at.x) + abs(position.y - spoke_at.y),
+                }
+                # S42: understanding is the listener's, not the speaker's —
+                # the same symbol may mean nothing to another repertoire.
+                if listener_lexicon is not None:
+                    entry["understanding"] = listener_lexicon.decode(message)
+                heard.append(entry)
         for letter in self._letters:
             if letter["sender"] == actor_id or actor_id not in letter["recipients"]:
                 continue
@@ -569,6 +584,143 @@ class World:
                 entry["scope"] = letter["address"]
             heard.append(entry)
         return heard
+
+    # ------------------------------------------------------------------
+    # Language (S42)
+    # ------------------------------------------------------------------
+
+    def lexicon(self, entity_id: int) -> Lexicon:
+        """This entity's repertoire, created empty on first use."""
+        lexicon = self._lexicons.get(entity_id)
+        if lexicon is None:
+            lexicon = Lexicon()
+            self._lexicons[entity_id] = lexicon
+        return lexicon
+
+    def speak(self, actor_id: int, message: str) -> Event:
+        """Speak in the speaker's own words, inventing symbols as needed.
+
+        Each concept word the speaker has no name for is named now
+        (``WORD_INVENTED``); the utterance leaves the speaker's mouth
+        encoded, and listeners decode it with their own repertoire. The
+        SPEECH payload carries the plain ``text`` and the exact
+        ``symbols`` used, so a listener can learn them.
+        """
+        position = self._entities.get(actor_id)
+        if position is None:
+            raise ValueError(f"unknown speaker {actor_id!r}")
+        lexicon = self.lexicon(actor_id)
+        encoded, innovations = lexicon.encode(
+            message, rng=self._language_rng, tick=self.tick, actor=actor_id
+        )
+        population_id = self.population_of(actor_id)
+        for innovation in innovations:
+            self._add_event(
+                EventTypes.WORD_INVENTED,
+                actor_id=actor_id,
+                payload={**innovation, "population_id": population_id},
+            )
+        # Only the concepts that actually appear in this utterance travel
+        # as learnable symbols — a listener learns what it heard, not the
+        # speaker's whole inner dictionary.
+        symbols = {
+            concept: lexicon.entries[concept]
+            for concept in concepts_in(message)
+            if concept in lexicon.entries
+        }
+        event = self._add_event(
+            EventTypes.SPEECH,
+            actor_id=actor_id,
+            payload={
+                "message": encoded,
+                "text": message,
+                "symbols": symbols,
+                "population_id": population_id,
+                "position": position.to_dict(),
+            },
+        )
+        self._speeches.append((actor_id, position, encoded, self.tick, symbols))
+        if len(self._speeches) > SPEECH_BUFFER:
+            del self._speeches[: len(self._speeches) - SPEECH_BUFFER]
+        return event
+
+    def learn(self, listener_id: int, speaker_id: int) -> list[dict]:
+        """Adopt the symbols from the speaker's most recent utterance.
+
+        Only what was heard is learned. A new word is an ``adopted``
+        change; a word that replaces a different one is a ``replaced``
+        change — both recorded on the listener's lexicon and the timeline.
+        """
+        if listener_id not in self._entities:
+            raise ValueError(f"unknown listener {listener_id!r}")
+        if speaker_id not in self._entities:
+            raise ValueError(f"unknown speaker {speaker_id!r}")
+        heard = next(
+            (
+                symbols
+                for speaker, _position, _message, _tick, symbols in reversed(self._speeches)
+                if speaker == speaker_id and symbols
+            ),
+            None,
+        )
+        if not heard:
+            return []
+        lexicon = self.lexicon(listener_id)
+        changes = []
+        for concept, symbol in sorted(heard.items()):
+            previous = lexicon.symbol_for(concept)
+            if lexicon.adopt(
+                concept, symbol, tick=self.tick, actor=listener_id, source=speaker_id
+            ):
+                changes.append({"concept": concept, "symbol": symbol, "previous": previous})
+                self._add_event(
+                    EventTypes.WORD_ADOPTED,
+                    actor_id=listener_id,
+                    target_id=speaker_id,
+                    payload={
+                        "concept": concept,
+                        "symbol": symbol,
+                        "previous": previous,
+                        "population_id": self.population_of(listener_id),
+                    },
+                )
+        return changes
+
+    def language_summary(self) -> dict:
+        """Every repertoire, plus the vocabulary the world now shares."""
+        agents = []
+        pairs_by_agent = []
+        for entity_id in sorted(self._lexicons):
+            lexicon = self._lexicons[entity_id]
+            agents.append(
+                {
+                    "entity_id": entity_id,
+                    "population_id": self.population_of(entity_id),
+                    "concepts": len(lexicon.entries),
+                    "changes": len(lexicon.history),
+                    "entries": dict(lexicon.entries),
+                }
+            )
+            pairs_by_agent.append(set(lexicon.entries.items()))
+        # Agreement: mean pairwise Jaccard across whoever has a lexicon.
+        scores = []
+        for index, mine in enumerate(pairs_by_agent):
+            for theirs in pairs_by_agent[index + 1 :]:
+                union = mine | theirs
+                scores.append(len(mine & theirs) / len(union) if union else 1.0)
+        shared = set()
+        for index, mine in enumerate(pairs_by_agent):
+            for theirs in pairs_by_agent[index + 1 :]:
+                shared |= mine & theirs
+        return {
+            "agents": agents,
+            "shared_words": sorted(
+                [{"concept": concept, "symbol": symbol} for concept, symbol in shared],
+                key=lambda item: (item["concept"], item["symbol"]),
+            ),
+            "agreement": round(sum(scores) / len(scores), 6) if scores else 1.0,
+            "changes": sum(len(lexicon.history) for lexicon in self._lexicons.values()),
+        }
 
     # ------------------------------------------------------------------
     # Communication networks (S28)
@@ -1215,9 +1367,16 @@ class World:
                     "position": spoke_at.to_dict(),
                     "message": message,
                     "tick": tick,
+                    "symbols": dict(symbols),
                 }
-                for speaker, spoke_at, message, tick in self._speeches
+                for speaker, spoke_at, message, tick, symbols in self._speeches
             ],
+            # Languages (S42): an agent's repertoire is part of who it is,
+            # so a resumed world keeps the words it had learned.
+            "lexicons": {
+                str(entity_id): lexicon.to_dict()
+                for entity_id, lexicon in sorted(self._lexicons.items())
+            },
         }
 
     @classmethod
@@ -1228,25 +1387,6 @@ class World:
             ]
         except KeyError as exc:
             raise ValueError(f"unknown terrain character in serialized world: {exc}") from exc
-        world = cls(
-            seed=data["seed"],
-            width=data["width"],
-            height=data["height"],
-            tick=data["tick"],
-            terrain=terrain,
-            objects=[WorldObject.from_dict(o) for o in data["objects"]],
-            next_object_id=data["next_object_id"],
-            entities={
-                int(actor_id): Position.from_dict(pos)
-                for actor_id, pos in data.get("entities", {}).items()
-            },
-            inventory={
-                int(actor_id): list(items)
-                for actor_id, items in data.get("inventory", {}).items()
-            },
-            events=[Event.from_dict(e) for e in data.get("events", [])],
-            next_event_id=data.get("next_event_id"),
-        )
         world = cls(
             seed=data["seed"],
             width=data["width"],
@@ -1381,8 +1521,11 @@ class World:
                     Position.from_dict(speech["position"]),
                     speech["message"],
                     speech.get("tick", 0),
+                    dict(speech.get("symbols") or {}),
                 )
             )
+        for entity_id, lexicon_data in (data.get("lexicons") or {}).items():
+            self._lexicons[int(entity_id)] = Lexicon.from_dict(lexicon_data)
 
     def render(self) -> str:
         """ASCII view of the world. Terrain chars, then objects, then

@@ -72,6 +72,7 @@ HANDLERS = {
     "build": "_build",
     "remove": "_remove",
     "say": "_say",
+    "speak": "_speak",
     "tell": "_tell",
     "announce": "_announce",
     "broadcast": "_broadcast",
@@ -313,6 +314,27 @@ def _say(world: World, actor_id, action: dict) -> dict:
     message = message.strip()
     world.say(actor_id, message)
     return {"message": message}
+
+
+def _speak(world: World, actor_id, action: dict) -> dict:
+    """Speak in the actor's invented language (S42).
+
+    Unknown concept words are named on the spot (``WORD_INVENTED``) and
+    the utterance is encoded with the speaker's repertoire. Plain speech
+    deliberately stays ``say``: a message may carry either the words a
+    world actually uses or the plain text, and neither rewrite breaks the
+    other.
+    """
+    _require_actor(world, actor_id)
+    message = action.get("message")
+    if not isinstance(message, str) or not message.strip():
+        raise _Rejected("empty_message", {})
+    event = world.speak(actor_id, message.strip())
+    return {
+        "message": event.payload["message"],
+        "text": event.payload["text"],
+        "symbols": dict(event.payload["symbols"]),
+    }
 
 
 # ----------------------------------------------------------------------

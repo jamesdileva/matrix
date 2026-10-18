@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S42 — Language Evolution
-- Completed sprints: S01–S41, S06B (S41 done 2026-10-16)
+- **Next sprint:** S43 — Ecosystem
+- Completed sprints: S01–S42, S06B (S42 done 2026-10-17)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -3193,6 +3193,117 @@ policies do not yet act on it).
 ### Commits
 - `af4dd4e` — S41: agent genetics — bounded genome, deterministic
   inheritance, recorded mutations, genetics API
+
+
+## S42 — Language Evolution (2026-10-17)
+
+### Plan
+Speech existed (S21) and routes existed (S28), but every message arrived
+already in a language nobody had invented. This sprint gives each agent a
+**lexicon**: a repertoire mapping concepts to invented symbols that grows
+when the agent names something and changes when it adopts a word it hears.
+Language becomes world state — observable, measurable, and lost only if a
+snapshot drops it — rather than a formatting choice fixed in code.
+
+### Scope
+In:
+- `app/simulation/language.py`: a fixed concept vocabulary, a `Lexicon`
+  (`invent`, `adopt`, `encode`, `decode`, `agreement`, `shared_with`) with
+  deterministic pronounceable symbols and a change history, and mean
+  pairwise agreement.
+- `World` language layer: per-entity lexicons (lazy, serialized), `speak`
+  (invents missing names, emits `WORD_INVENTED` + an encoded `SPEECH`),
+  `learn` (adopts a speaker's most recent utterance, emits `WORD_ADOPTED`),
+  and `language_summary()`.
+- A `speak` action; `say` deliberately unchanged.
+- Hearing: `messages_for` adds the listener's `understanding` of an encoded
+  utterance.
+- API: `GET /worlds/{id}/language`, `POST .../language/speak`,
+  `POST .../language/learn`.
+- `app/experiments/language.py`: a deterministic emergence study
+  (independent invention, then conversation) with a convergence curve.
+- Tests, docs.
+
+Out: language change without a listener (no spontaneous drift or decay),
+grammar or word order, an explicit cross-population translation policy,
+model-provider language generation, and replay reconstructing lexicons
+(language is snapshot state; replay remains event-focused).
+
+### Decisions
+1. **`say` stays plain; `speak` is the language path.** Existing messages
+   and their tests are contracts, and a caller may want either the plain
+   words or the world's own. Two verbs keep both without rewriting the
+   past.
+2. **Symbols are per agent, not per population.** Convergence is measured
+   with Jaccard agreement over concept→symbol pairs. A population agrees
+   because its members talked, not because the code handed them one
+   dictionary.
+3. **Learning is explicit and conservative.** Hearing alone never rewrites
+   a repertoire; `learn` adopts only the concepts in the latest utterance
+   and records every replacement. `messages_for` stays a read path.
+4. **Utterances carry their plaintext mapping.** The learnable `symbols`
+   map rides in the speech buffer, not only the event log, so a restored
+   snapshot can still teach even though snapshots drop events.
+
+### Implementation
+- **`app/simulation/language.py`**: 16 concept words; invented symbols are
+  2–3 syllable forms (onset + vowel) never colliding with a concept, so
+  encoding is unambiguous. History records `invented`, `adopted`, and
+  `replaced` changes with tick, actor, source, and the previous symbol.
+  `encode` replaces concept words only (other words pass through) and
+  returns the innovations; `decode` is its exact inverse; `agreement` is
+  the Jaccard similarity of concept→symbol pairs.
+- **`World`**: `_lexicons` (entity → `Lexicon`) and a deterministic
+  `_language_rng` seeded `f"{seed}:language"`. `speak` emits one
+  `WORD_INVENTED` per newly named concept and a `SPEECH` whose payload
+  carries the encoded `message`, plain `text`, the learnable `symbols`,
+  the speaker's population, and position. The rolling speech buffer now
+  holds `(speaker, position, message, tick, symbols)`. `learn` reads the
+  speaker's latest buffered utterance; `messages_for` adds a listener-side
+  `understanding` only when that listener has a lexicon. `language_summary`
+  returns repertoires, shared words, mean agreement, and change counts.
+- **Actions**: `speak` encodes through the world and returns message, text,
+  and symbols; `say` is untouched.
+- **API**: the three language routes above, registered with the rest of
+  the world router; 404 for unknown agents, 400 on an empty message via
+  the action path.
+- **`app/experiments/language.py`**: every agent privately names the same
+  concepts (diverging), then rounds of hearing-and-adopting measure
+  agreement, vocabulary size, shared words, and change count. An
+  `attention` knob limits how many words a listener takes per round.
+- **Serialization**: lexicons are written by `to_dict` and rebuilt in
+  `_restore_derived`; speech entries carry their `symbols`. While editing
+  `from_dict`, removed a duplicated dead `world = cls(...)` block that was
+  immediately overwritten (no behaviour change).
+
+### Verification
+- Tests: pytest **702 passed** (24 new: 20 in `test_language.py`, 4 in
+  `test_api_language.py`). Coverage: deterministic invention and no
+  renaming; encode/decode round-trip and pass-through of non-concepts;
+  adopt/replace/no-op history and symbols never shadowing a concept;
+  agreement counts symbols not merely concepts; world speak invents and
+  emits both events; learning makes an utterance understood and tracked;
+  unknown entities rejected; summary metrics; lexicons and learnable
+  speeches survive a save/restore; `say` remains plain while `speak`
+  encodes; study convergence, determinism, and input validation; HTTP
+  speak/learn/summary, the action route, 404s, and empty-message
+  rejection.
+- Live (dev API on port 8011; 8000 was already held by an unrelated
+  `apps/coordinator` service): created world 145 with agents 1–3, spoke
+  "water stone tree" as agent 1 → `"pati vesa siga"`, taught agents 2 and
+  3 (3 words each), then `GET /language` reported **agreement 1.0**, 9
+  changes, and all three sharing water=`pati`, stone=`vesa`, tree=`siga`.
+- Roadmap S42 checklist: **shared vocabulary can emerge** ✅ — the study
+  starts at 0.0 agreement (48 privately invented symbols for 8 concepts)
+  and reaches 1.0 by round 4 with 8 shared symbols for 6 agents;
+  **messages remain parseable** ✅ — `decode(encode(text)) == text` for
+  lowercase concept text, matching is case-insensitive, and ordinary
+  words are never replaced; **language changes can be tracked** ✅ —
+  every invention and adoption is a history entry and a
+  `WORD_INVENTED`/`WORD_ADOPTED` event.
+
+### Commits
+- Pending.
 
 
 

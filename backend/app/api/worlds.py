@@ -470,8 +470,70 @@ def inject_action(world_id: int, payload: ActionRequest, request: Request) -> di
     }
 
 
+@router.get("/worlds/{world_id}/language")
+def get_language(world_id: int, request: Request) -> dict:
+    """S42: every repertoire, the words shared, and how far it agrees.
+
+    Agreement is mean pairwise Jaccard over concept→symbol pairs, so the
+    number rises only when agents use the *same* symbol for a concept.
+    """
+    host = _host(request, world_id)
+    return {"world_id": world_id, **host.engine.world.language_summary()}
+
+
+@router.post("/worlds/{world_id}/language/speak")
+def speak_language(
+    world_id: int, payload: LanguageSpeakRequest, request: Request
+) -> dict:
+    """S42: speak in the agent's own language, inventing missing words."""
+    host = _host(request, world_id)
+    if not payload.message.strip():
+        raise HTTPException(status_code=400, detail="empty_message")
+    try:
+        event = host.engine.world.speak(payload.speaker_id, payload.message.strip())
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "event_id": event.id,
+        "speaker_id": payload.speaker_id,
+        "message": event.payload["message"],
+        "text": event.payload["text"],
+        "symbols": event.payload["symbols"],
+    }
+
+
+@router.post("/worlds/{world_id}/language/learn")
+def learn_language(
+    world_id: int, payload: LanguageLearnRequest, request: Request
+) -> dict:
+    """S42: adopt the words from a speaker's most recent utterance."""
+    host = _host(request, world_id)
+    try:
+        changes = host.engine.world.learn(payload.listener_id, payload.speaker_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "listener_id": payload.listener_id,
+        "speaker_id": payload.speaker_id,
+        "learned": changes,
+        "lexicon": host.engine.world.lexicon(payload.listener_id).entries,
+    }
+
+
 class ParticipantMoveRequest(BaseModel):
     direction: str
+
+
+class LanguageSpeakRequest(BaseModel):
+    speaker_id: int
+    message: str
+
+
+class LanguageLearnRequest(BaseModel):
+    listener_id: int
+    speaker_id: int
 
 
 class ChatRequest(BaseModel):

@@ -78,6 +78,10 @@ class EventTypes:
     # S41: genetics. The genome a child inherited, and the mutations that
     # changed it, are facts too — a lineage's drift is on the timeline.
     GENES_INHERITED = "GENES_INHERITED"
+    # S42: language. A named concept and a borrowed word are facts too —
+    # a vocabulary's growth is a timeline, not an assumption.
+    WORD_INVENTED = "WORD_INVENTED"
+    WORD_ADOPTED = "WORD_ADOPTED"
 
 
 @dataclass(frozen=True)
