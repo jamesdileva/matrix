@@ -20,6 +20,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from app.simulation.bus import EventBus
+from app.simulation.ecosystem import Ecosystem
 from app.simulation.errors import CellOccupiedError, InvalidPositionError
 from app.simulation.events import Event, EventTypes
 from app.simulation.budget import AGENT_KINDS, Budget, KINDS, LimitExceeded
@@ -121,7 +122,11 @@ class WorldObject:
             "type": self.type,
             "position": self.position.to_dict() if self.position else None,
             "created_tick": self.created_tick,
-            "properties": self.properties,
+            # Copy: a serialized world must not share mutable property
+            # dicts with the object it was written from. Ecosystem plants
+            # (S43) are regrown in place, so aliasing would make a
+            # restored world and its source advance each other.
+            "properties": dict(self.properties),
             "created_by_agent_id": self.created_by_agent_id,
         }
 
@@ -132,7 +137,7 @@ class WorldObject:
             type=data["type"],
             position=Position.from_dict(data["position"]) if data.get("position") else None,
             created_tick=data["created_tick"],
-            properties=data.get("properties") or {},
+            properties=dict(data.get("properties") or {}),
             created_by_agent_id=data.get("created_by_agent_id"),
         )
 
@@ -231,6 +236,9 @@ class World:
         # `speak` and listeners adopt them through `learn`.
         self._lexicons: dict[int, Lexicon] = {}
         self._language_rng = random.Random(f"{self.seed}:language")
+        # Ecosystem (S43): opt-in life and climate. Absent means the world
+        # is exactly the inert Void it was before this sprint.
+        self._ecosystem: Ecosystem | None = None
         # Routed letters (S28): named, group and global messages, as
         # dicts — {sender, kind, address, message, tick, recipients}.
         # The recipients are frozen at send time; leaving the world
@@ -347,6 +355,25 @@ class World:
                     )
         return world
 
+    def enable_ecosystem(self, **config) -> Ecosystem:
+        """Turn on plants, animals, weather, and seasons (S43).
+
+        Accepts `Ecosystem`'s knobs (season length, regrowth cadence,
+        plant and animal caps, initial counts). Idempotence is refused on
+        purpose: one world, one living layer.
+        """
+        if self._ecosystem is not None:
+            raise ValueError("this world already has an ecosystem")
+        ecosystem = Ecosystem(**config)
+        ecosystem.seed(self)
+        self._ecosystem = ecosystem
+        return ecosystem
+
+    @property
+    def ecosystem(self) -> Ecosystem | None:
+        """The living layer, or None for an inert world."""
+        return self._ecosystem
+
     # ------------------------------------------------------------------
     # Queries
     # ------------------------------------------------------------------
@@ -379,10 +406,12 @@ class World:
     def step(self) -> int:
         """Advance the simulation tick and apply world dynamics.
 
-        Purely counter-advancing for now; dynamics arrive with resources
-        and ecosystem sprints.
+        An ecosystem world grows plants, moves its herds, and advances its
+        weather here (S43); a world without one advances only the clock.
         """
         self.tick += 1
+        if self._ecosystem is not None:
+            self._ecosystem.tick(self)
         return self.tick
 
     def place_object(
@@ -1288,6 +1317,10 @@ class World:
                 str(actor_id): pos.to_dict()
                 for actor_id, pos in sorted(self._entities.items())
             },
+            # S43: the living layer, client-facing (season, weather, herds).
+            "ecosystem": (
+                self._ecosystem.summary(self) if self._ecosystem is not None else None
+            ),
         }
 
     def to_dict(self) -> dict:
@@ -1377,6 +1410,10 @@ class World:
                 str(entity_id): lexicon.to_dict()
                 for entity_id, lexicon in sorted(self._lexicons.items())
             },
+            # The living layer (S43), whole: caps, climate, herds.
+            "ecosystem": (
+                self._ecosystem.to_dict() if self._ecosystem is not None else None
+            ),
         }
 
     @classmethod
@@ -1526,6 +1563,8 @@ class World:
             )
         for entity_id, lexicon_data in (data.get("lexicons") or {}).items():
             self._lexicons[int(entity_id)] = Lexicon.from_dict(lexicon_data)
+        if data.get("ecosystem"):
+            self._ecosystem = Ecosystem.from_dict(data["ecosystem"])
 
     def render(self) -> str:
         """ASCII view of the world. Terrain chars, then objects, then

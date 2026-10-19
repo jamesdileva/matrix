@@ -411,6 +411,7 @@ class WorldRegistry:
         brains: str = BRAINS_SCRIPTED,
         populations: list[dict] | None = None,
         compute_budget: dict | None = None,
+        ecosystem: bool = False,
     ) -> WorldHost:
         if brains not in _BRAINS:
             raise ValueError(f"unknown brains {brains!r}; expected one of {_BRAINS}")
@@ -457,6 +458,8 @@ class WorldRegistry:
         bus = EventBus()
         bus.subscribe(DatabaseEventRecorder(self._session_factory, world_id))
         world = World.generate(seed, width, height, event_bus=bus)
+        if ecosystem:
+            world.enable_ecosystem()
 
         provider: ModelProvider | None = None
         if brains == BRAINS_MODEL:

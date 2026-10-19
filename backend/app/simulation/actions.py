@@ -190,8 +190,14 @@ def _gather(world: World, actor_id, action: dict) -> dict:
         world.credit_resource(actor_id, resource, amount)
         depleted = False
         if obj.properties["quantity"] <= 0:
-            world.remove_object(obj.id)
-            depleted = True
+            # An ecosystem plant is a living patch (S43): it stays after
+            # the last unit is taken and regrows. An ordinary source is
+            # exhausted and leaves the world, as it always has.
+            if obj.properties.get("regrows"):
+                obj.properties["quantity"] = 0
+            else:
+                world.remove_object(obj.id)
+                depleted = True
         return {
             "resource": resource,
             "amount": amount,

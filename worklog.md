@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S43 — Ecosystem
-- Completed sprints: S01–S42, S06B (S42 done 2026-10-17)
+- **Next sprint:** S44 — Civilization Challenges
+- Completed sprints: S01–S43, S06B (S43 done 2026-10-18)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -3305,6 +3305,115 @@ model-provider language generation, and replay reconstructing lexicons
 ### Commits
 - `2976fb5` — S42: language evolution — invented symbols, per-agent
   lexicons, learning, language API
+
+
+## S43 — Ecosystem (2026-10-17)
+
+### Plan
+The Void has terrain and resources but no life of its own: objects sit
+where generation put them, nothing grows back, and the sky never changes.
+This sprint adds an **ecosystem** — plants that regrow, animals that eat
+them and each other, weather and seasons that scale the whole economy.
+The point is not decoration: it is a deterministic environment whose
+resources regenerate within hard bounds, so later challenges (winter,
+scarcity) can be honest.
+
+### Scope
+In:
+- `app/simulation/ecosystem.py`: seasons and weather derived purely from
+  the tick and seed; plant patches (berry bushes and trees) whose biomass
+  regrows toward a capacity and spreads to a capped number of patches;
+  grazing and predatory animals with energy, age, movement, reproduction,
+  and death, all capped in population and energy.
+- World integration: opt-in `enable_ecosystem`, an ecosystem tick inside
+  `World.step`, an `ECOSYSTEM_SEEDED` event plus season/weather/animal
+  events, snapshots and save/restore carrying the ecosystem whole.
+- Resource integration: regrowing plants are ordinary world objects, so
+  existing `gather` works on them; a gathered-out plant stays in place
+  (rather than vanishing) and regrows.
+- API: `POST /api/worlds` accepts `ecosystem`, `GET /api/ecosystem`
+  describes the shelf, `GET /api/worlds/{id}/ecosystem` reports the live
+  state.
+- Tests, docs.
+
+Out: agents eating or hunting (the food chain is animal-side for now),
+disease, migration between worlds, a rendered animal client, and
+selection/evolution of species traits.
+
+### Decisions
+1. **Plants are world objects, not a parallel layer.** Berry bushes are
+   `food` and trees are `tree` objects carrying `regrows`, `capacity`,
+   and `species`. Agents can gather them with no new action, and bounded
+   regeneration is enforced where quantity is written.
+2. **Weather and seasons are pure functions of seed and tick.** No
+   running climate RNG is serialized, so a restored world resumes the
+   same sky as an uninterrupted one.
+3. **Animal randomness is per-tick seeded.** Any choice derives from
+   `f"{seed}:animals:{tick}"`, and animals are processed in id order, so
+   two identical worlds produce identical herds.
+4. **The ecosystem is opt-in.** A world without `ecosystem=True` is
+   exactly the world it was before this sprint; existing scenarios,
+   event counts, and snapshots are untouched.
+
+### Implementation
+- `backend/app/simulation/ecosystem.py` (new):
+  - Climate: `SEASONS`, `WEATHERS`, growth/cost tables, weighted
+    `WEATHER_OPTIONS` per season, `season_for(tick, season_length)` and
+    `weather_for(seed, tick, season, weather_interval)` — both pure, the
+    latter seeded per weather interval.
+  - Life: `PLANT_SPECIES` (`berry` food/capacity 4, `tree` tree/capacity 6)
+    and `ANIMAL_SPECIES` (`grazer`, `predator`) with energy, gain,
+    lifespan, sense, reproduction threshold, and per-species caps.
+  - `Ecosystem` owns the config (`DEFAULT_CONFIG`: 60-tick seasons, 8-tick
+    weather, 3-tick regrow, 20-tick spread, 24 plant patches, 16 animals),
+    season/weather, `Animal` herd, `next_animal_id`, and stats.
+  - `seed(world)` places plants and animals on free floor from a seeded
+    shuffle and emits `ECOSYSTEM_SEEDED`; `add_plant` creates an ordinary
+    regrowing object; `add_animal` clamps energy and age.
+  - `tick(world)` derives season/weather (emitting change events on
+    transitions), regrows plants toward capacity, spreads patches to a cap
+    on favourable ticks, and advances animals: cost, starvation/age death,
+    movement toward the nearest plant or grazer within sense, eating,
+    capped reproduction, and birth/death events. Per-tick RNG is
+    `Random(f"{seed}:animals:{tick}")` with id-ordered animals, so herds
+    are deterministic.
+  - `summary`, tolerant `to_dict`/`from_dict`, and `ecosystem_catalog`.
+- `world.py`: opt-in `enable_ecosystem(**config)` (refuses double-enable),
+  `ecosystem` property, ecosystem tick inside `step`, ecosystem in
+  `snapshot()`/`to_dict()`/`_restore_derived`.
+- `events.py`: `ECOSYSTEM_SEEDED`, `SEASON_CHANGED`, `WEATHER_CHANGED`,
+  `ANIMAL_BORN`, `ANIMAL_DIED`.
+- `actions.py`: gathering a regrowing plant sets its quantity to 0 and
+  reports `depleted: False`, leaving the plant rooted to regrow.
+- `host.py`: `WorldRegistry.create(..., ecosystem=False)`, enabled after
+  generation.
+- `api/worlds.py`: `CreateWorldRequest.ecosystem`, `GET /api/ecosystem`,
+  `GET /worlds/{id}/ecosystem` (returns `enabled: false` when absent).
+- `WorldObject.to_dict`/`from_dict` now copy `properties`, so a restored
+  world cannot share mutable plant state with the world it came from.
+- Tests: `tests/test_ecosystem.py` (15) and `tests/test_api_ecosystem.py`
+  (4) — seasons/weather purity, regrowth and spread caps, gathering,
+  food-chain energy transfer, population/energy bounds over 300 ticks,
+  reproduction caps, same-seed determinism, save/restore equivalence,
+  opt-in inertness, validation, catalog, and the API surface.
+
+### Verification
+- `backend/.venv/Scripts/python -m pytest -q`: **721 passed**
+  (702 after S42 + 19 ecosystem/API tests), ~2m57s.
+- Live on port 8011 (`seed="eco-live"`, 16×16, 3 agents, ecosystem on):
+  - tick 0: spring/rain, 16 plant patches (biomass 76/76), 7 animals
+    (6 grazers, 1 predator).
+  - after 65 steps: tick 65, **summer/clear**, plants 24/24 (biomass
+    83/108), animals 12/16 (12 grazers, 0 predators), 325 plants eaten,
+    17 grazers eaten, 35 births, 30 deaths; events show the tick-60
+    `SEASON_CHANGED` and five `WEATHER_CHANGED` transitions.
+  - manual snapshot then stop/restore resumed at tick 65 with the same
+    summer climate, 24 plant patches, and 12 animals.
+  - `GET /api/ecosystem` returned the season/animal/plant shelves and
+    default caps (24 patches, 16 animals).
+
+### Commits
+(pending)
 
 
 

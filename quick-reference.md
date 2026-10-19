@@ -707,6 +707,34 @@ cd backend
 .venv/Scripts/python -c "from app.experiments.language import run_language_experiment as r; print(r()['agreement_by_round'])"
 ```
 
+## Ecosystem (S43+)
+
+```bash
+# create a living world (opt-in; without this flag nothing changes)
+curl -s -X POST localhost:8000/api/worlds \
+  -H "Content-Type: application/json" \
+  -d '{"seed":"eden","width":16,"height":16,"agents":3,"ecosystem":true}'
+# what life can exist
+curl -s localhost:8000/api/ecosystem | jq
+# live climate, plant biomass, herd, and food-chain stats
+curl -s localhost:8000/api/worlds/1/ecosystem | jq
+```
+
+Seasons cycle every 60 ticks (spring → summer → autumn → winter) and
+weather changes every 8, both derived only from the seed and tick, so a
+restored world resumes the same sky. Berry bushes and trees are ordinary
+world objects with `regrows`/`capacity`/`species`; they regrow toward
+capacity and spread to at most 24 patches. Grazers eat plants; predators
+eat grazers; animals have energy, age, and per-species caps (12 grazers,
+2 predators, 16 total). Gathering a plant leaves it rooted at quantity 0
+to regrow. The whole ecosystem is in snapshots and `to_dict`, and the
+same seed always produces the same climate, herds, plants, and events.
+
+```bash
+cd backend
+.venv/Scripts/python -c "from app.simulation.ecosystem import ecosystem_catalog; import json; print(json.dumps(ecosystem_catalog(), indent=2))"
+```
+
 ## Database (S02+)
 
 ```bash

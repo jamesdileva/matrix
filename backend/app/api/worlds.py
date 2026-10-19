@@ -46,6 +46,9 @@ class CreateWorldRequest(BaseModel):
     # dimensions. When set, the template supplies width, height, agents
     # and the population rotation; the seed stays the caller's.
     template: str | None = None
+    # S43: give the world life and climate. Off by default, so an
+    # ordinary world is exactly what it was before the ecosystem existed.
+    ecosystem: bool = False
 
 
 class SpawnRulePayload(BaseModel):
@@ -118,6 +121,7 @@ async def create_world(payload: CreateWorldRequest, request: Request) -> dict:
                 **template.world_kwargs(seed=payload.seed, tps=payload.tick_rate),
                 autostart=payload.autostart,
                 brains=payload.brains,
+                ecosystem=payload.ecosystem,
             )
         else:
             host = request.app.state.worlds.create(
@@ -130,6 +134,7 @@ async def create_world(payload: CreateWorldRequest, request: Request) -> dict:
                 brains=payload.brains,
                 populations=payload.populations,
                 compute_budget=payload.compute_budget,
+                ecosystem=payload.ecosystem,
             )
     except ValueError as exc:
         # Unknown brains, a bad spawn rule, an unknown template, or a
@@ -152,6 +157,14 @@ def genetics_library() -> dict:
     from app.simulation.genetics import mutation_catalog
 
     return mutation_catalog()
+
+
+@router.get("/ecosystem")
+def ecosystem_library() -> dict:
+    """S43: the ecosystem shelf — species, weather, seasons, caps."""
+    from app.simulation.ecosystem import ecosystem_catalog
+
+    return ecosystem_catalog()
 
 
 @router.get("/worlds")
@@ -520,6 +533,16 @@ def learn_language(
         "learned": changes,
         "lexicon": host.engine.world.lexicon(payload.listener_id).entries,
     }
+
+
+@router.get("/worlds/{world_id}/ecosystem")
+def get_ecosystem(world_id: int, request: Request) -> dict:
+    """S43: season, weather, plant biomass, herds, caps, and food chain."""
+    host = _host(request, world_id)
+    world = host.engine.world
+    if world.ecosystem is None:
+        return {"world_id": world_id, "enabled": False}
+    return {"world_id": world_id, **world.ecosystem.summary(world)}
 
 
 class ParticipantMoveRequest(BaseModel):

@@ -82,6 +82,13 @@ class EventTypes:
     # a vocabulary's growth is a timeline, not an assumption.
     WORD_INVENTED = "WORD_INVENTED"
     WORD_ADOPTED = "WORD_ADOPTED"
+    # S43: ecosystem. Life and weather change on their own, within caps;
+    # the timeline records the changes a reader would want to explain.
+    ECOSYSTEM_SEEDED = "ECOSYSTEM_SEEDED"
+    SEASON_CHANGED = "SEASON_CHANGED"
+    WEATHER_CHANGED = "WEATHER_CHANGED"
+    ANIMAL_BORN = "ANIMAL_BORN"
+    ANIMAL_DIED = "ANIMAL_DIED"
 
 
 @dataclass(frozen=True)
