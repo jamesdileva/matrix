@@ -3413,7 +3413,8 @@ selection/evolution of species traits.
     default caps (24 patches, 16 animals).
 
 ### Commits
-(pending)
+- `0419821` — S43: ecosystem — plants, animals, weather, seasons,
+  bounded regeneration
 
 
 
