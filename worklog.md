@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S44 — Civilization Challenges
-- Completed sprints: S01–S43, S06B (S43 done 2026-10-18)
+- **Next sprint:** S45 — Human Intervention Experiments
+- Completed sprints: S01–S44, S06B (S44 done 2026-10-19)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -3415,6 +3415,110 @@ selection/evolution of species traits.
 ### Commits
 - `0419821` — S43: ecosystem — plants, animals, weather, seasons,
   bounded regeneration
+
+
+## S44 — Civilization Challenges (2026-10-19)
+
+### Plan
+The Void now has terrain, resources, settlements, minds, language, and a
+living environment, but it has no *goals*. This sprint adds civilization
+challenges: a world can be asked to bridge a river, found a village, bank
+stores, survive a winter, invent a game, or find a hidden region. The
+point is not a quest system with scripts; it is a small set of goals with
+explicit, world-derived metrics, so a run can be judged and compared
+without trusting a narrator.
+
+### Scope
+In:
+- `app/simulation/challenges.py`: six challenge kinds, a catalog with
+  completion rules and units, per-challenge setup derived from world
+  facts, and a per-tick evaluator.
+- World integration: `start_challenge`, challenge summaries, start and
+  verdict events, serialization, and snapshot/restore.
+- Bridge construction: wood and stone blocks may be laid on water and are
+  walkable; the bridge challenge targets a deterministic water span
+  between two shores.
+- Discovery: a deterministic hidden region, omitted from public
+  summaries until someone enters it.
+- API: `GET /api/challenges`, `GET/POST /api/worlds/{id}/challenges`,
+  `GET /api/worlds/{id}/challenges/{challenge_id}`.
+- Tests and docs.
+
+Out: model-authored challenge generation, automatic scenario setup or
+agent policies for each goal, rewards or a score economy, a challenge
+leaderboard, cross-world challenge studies, and a console panel.
+
+### Decisions
+1. **Challenges evaluate world facts; they do not script behavior.**
+   Metrics come from structures, settlements, storage, seasons, games,
+   and entity positions. Nothing keeps a private clock or RNG.
+2. **Starting a challenge freezes its parameters.** A bridge span, storage
+   baseline, winter deadline, game baseline, or hidden center is chosen
+   once and serialized, so a resumed world judges the same question.
+3. **Every verdict is explainable data.** A challenge carries `unit`,
+   `target`, `completion`, live `metrics`, and, once finished, the tick
+   and reason. Completion and failure ride the timeline with the whole
+   challenge.
+4. **One challenge of each kind per world.** A second bridge is not a new
+   question; this keeps metrics unambiguous.
+5. **Bridges are ordinary world objects that are walkable.** Only wood and
+   stone blocks may be placed on water; a plank under a standing entity
+   cannot be dismantled. This keeps the grid honest and saves restorable.
+6. **Discovery is hidden in summaries, never in storage.** Public
+   snapshots say only `{"hidden": true}` until completion; the full center
+   is serialized so a restore can still judge it.
+
+### Implementation
+- `backend/app/simulation/challenges.py` (new):
+  - `CHALLENGE_CATALOG` for bridge, settlement, transport, winter, game,
+    and discovery: name, description, completion text, unit, default
+    target, and requirements; `challenge_catalog()` exposes it.
+  - Bridge setup scans rows then columns for a deterministic water span of
+    1–8 cells bounded by floor; the target is the span length.
+  - Transport baselines current settlement storage; invitations count
+    only storage above that baseline.
+  - Winter requires an ecosystem and at least one entity; the deadline is
+    the first tick of the next spring, derived from `season_for`.
+  - Game baselines the proposed-game count; discovery picks the floor cell
+    farthest from every entity (Manhattan) and a radius of 2.
+  - `Challenge.advance` refreshes metrics from world facts and returns
+    `"completed"`/`"failed"` once; verdicts record `completed_tick` and
+    `failed_reason`. `to_dict(reveal=False)` hides an active discovery's
+    center.
+- `world.py`: `start_challenge`, `challenges`, `challenge`, per-tick
+  `_advance_challenges`, `CHALLENGE_STARTED`/`COMPLETED`/`FAILED` events,
+  challenge summaries in `snapshot()`, and full challenges plus
+  `next_challenge_id` in `to_dict`/restore.
+- `actions.py`: wood/stone blocks can be built on water with
+  `properties["bridge"] = True`; `_move` allows stepping onto bridge
+  planks; `_remove` refuses to pull a plank from a cell holding an entity.
+- `world.py` (bridge support): `place_object(allow_water=)`,
+  `_validate_position(allow_water=)`, `_bridge_at`, and entity
+  placement/restore on bridge cells.
+- `api/worlds.py`: `StartChallengeRequest`, `GET /api/challenges`, and the
+  three world challenge routes (400 for rule violations, 404 for unknown
+  worlds/challenges).
+- Tests: `tests/test_challenges.py` (19) and
+  `tests/test_api_challenges.py` (4).
+
+### Verification
+- `backend/.venv/Scripts/python -m pytest -q`: **744 passed**
+  (742 after adding the first 21 challenge tests, plus 2 edge-case tests),
+  ~3m10s.
+- CLI run of all six kinds: bridge completed 3/3 planks with the walker at
+  x=6; settlement 2/2 members; transport 6/6 units above a baseline of 2
+  (storage 8); winter completed at tick 8 (spring) with 1 survivor; game
+  completed 1/1; discovery hid `{"hidden": true}` while active, then
+  revealed center (11, 11). A bridge world and its walker round-tripped a
+  save/restore identically.
+- Live on port 8011: catalog returned all six kinds; world 147 started
+  settlement, game, and discovery (game completed after a proposed Long
+  Road; discovery stayed hidden with distance 25; duplicate settlement was
+  400); ecosystem world 148 started winter at tick 0 with deadline 240,
+  and at tick 240 reported `completed` with 1 survivor and season spring.
+
+### Commits
+(pending)
 
 
 

@@ -51,6 +51,14 @@ class CreateWorldRequest(BaseModel):
     ecosystem: bool = False
 
 
+class StartChallengeRequest(BaseModel):
+    """S44: ask a world to do something measurable."""
+
+    kind: str
+    target: int | None = Field(default=None, ge=1)
+    name: str | None = None
+
+
 class SpawnRulePayload(BaseModel):
     """A population's spawn rule, as data (S27)."""
 
@@ -165,6 +173,14 @@ def ecosystem_library() -> dict:
     from app.simulation.ecosystem import ecosystem_catalog
 
     return ecosystem_catalog()
+
+
+@router.get("/challenges")
+def challenge_library() -> dict:
+    """S44: the challenge shelf — metrics, completion rules, requirements."""
+    from app.simulation.challenges import challenge_catalog
+
+    return challenge_catalog()
 
 
 @router.get("/worlds")
@@ -543,6 +559,55 @@ def get_ecosystem(world_id: int, request: Request) -> dict:
     if world.ecosystem is None:
         return {"world_id": world_id, "enabled": False}
     return {"world_id": world_id, **world.ecosystem.summary(world)}
+
+
+@router.get("/worlds/{world_id}/challenges")
+def list_challenges(world_id: int, request: Request) -> dict:
+    """S44: every challenge and its live metric."""
+    host = _host(request, world_id)
+    return {
+        "world_id": world_id,
+        "challenges": [
+            challenge.to_dict(reveal=False)
+            for challenge in host.engine.world.challenges
+        ],
+    }
+
+
+@router.post("/worlds/{world_id}/challenges", status_code=201)
+def start_challenge(
+    world_id: int, payload: StartChallengeRequest, request: Request
+) -> dict:
+    """S44: begin a challenge; its metric is derived from world facts."""
+    host = _host(request, world_id)
+    try:
+        challenge = host.engine.world.start_challenge(
+            payload.kind,
+            target=payload.target,
+            name=payload.name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "world_id": world_id,
+        "challenge": challenge.to_dict(reveal=False),
+    }
+
+
+@router.get("/worlds/{world_id}/challenges/{challenge_id}")
+def get_challenge(world_id: int, challenge_id: int, request: Request) -> dict:
+    """S44: one challenge's metric and verdict (discovery reveals on win)."""
+    host = _host(request, world_id)
+    challenge = host.engine.world.challenge(challenge_id)
+    if challenge is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"challenge {challenge_id} not in world {world_id}",
+        )
+    return {
+        "world_id": world_id,
+        "challenge": challenge.to_dict(reveal=False),
+    }
 
 
 class ParticipantMoveRequest(BaseModel):

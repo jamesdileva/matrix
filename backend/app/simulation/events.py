@@ -89,6 +89,11 @@ class EventTypes:
     WEATHER_CHANGED = "WEATHER_CHANGED"
     ANIMAL_BORN = "ANIMAL_BORN"
     ANIMAL_DIED = "ANIMAL_DIED"
+    # S44: civilization challenges. A world can be asked to do something
+    # measurable; the timeline records the ask and the verdict.
+    CHALLENGE_STARTED = "CHALLENGE_STARTED"
+    CHALLENGE_COMPLETED = "CHALLENGE_COMPLETED"
+    CHALLENGE_FAILED = "CHALLENGE_FAILED"
 
 
 @dataclass(frozen=True)

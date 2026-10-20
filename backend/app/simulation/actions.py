@@ -229,7 +229,13 @@ def _build(world: World, actor_id, action: dict) -> dict:
     target = Position(position.x + dx, position.y + dy)
     if not world.in_bounds(target):
         raise _Rejected("out_of_bounds", {"to": target.to_dict()})
-    if world.terrain_at(target) is not Terrain.FLOOR:
+    terrain = world.terrain_at(target)
+    on_water = terrain is Terrain.WATER
+    if terrain is not Terrain.FLOOR and not (
+        on_water and block_type in ("wood_block", "stone_block")
+    ):
+        # S44: wood and stone can be laid across water as a bridge;
+        # everything else still needs solid ground.
         raise _Rejected("impassable_terrain", {"to": target.to_dict()})
     if target in world._occupancy:
         raise _Rejected("cell_occupied", {"to": target.to_dict()})
@@ -264,8 +270,14 @@ def _build(world: World, actor_id, action: dict) -> dict:
     obj = world.place_object(
         block_type,
         target,
-        properties={"material": recipe, "placed_by": actor_id, "structure_id": structure_id},
+        properties={
+            "material": recipe,
+            "placed_by": actor_id,
+            "structure_id": structure_id,
+            **({"bridge": True} if on_water else {}),
+        },
         created_by_agent_id=actor_id,
+        allow_water=on_water,
     )
     world.add_to_structure(structure_id, obj.id)
     # S30: a member raising a structure inside its settlement's extent
@@ -298,6 +310,12 @@ def _remove(world: World, actor_id, action: dict) -> dict:
     obj = world.object_at(target)
     if obj is None or "structure_id" not in obj.properties:
         raise _Rejected("not_a_block", {"position": target.to_dict()})
+    if target in world._entity_cells:
+        # A bridge plank is walkable; do not pull it out from underfoot.
+        raise _Rejected(
+            "cell_occupied",
+            {"position": target.to_dict(), "entity_id": world._entity_cells[target]},
+        )
 
     material = obj.properties.get("material") or {}
     world.remove_block(obj.id)
@@ -915,11 +933,13 @@ def _move(world: World, actor_id, action: dict) -> dict:
     if not world.in_bounds(target):
         raise _Rejected("out_of_bounds", {"to": target.to_dict()})
     terrain = world.terrain_at(target)
+    bridge = world.object_at(target)
+    standing_on_bridge = bridge is not None and bridge.properties.get("bridge")
     if terrain is Terrain.WALL:
         raise _Rejected("wall", {"to": target.to_dict()})
-    if terrain is Terrain.WATER:
+    if terrain is Terrain.WATER and not standing_on_bridge:
         raise _Rejected("water", {"to": target.to_dict()})
-    if target in world._occupancy:
+    if target in world._occupancy and not standing_on_bridge:
         raise _Rejected(
             "cell_occupied", {"to": target.to_dict(), "object_id": world._occupancy[target]}
         )

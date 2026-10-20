@@ -735,6 +735,32 @@ cd backend
 .venv/Scripts/python -c "from app.simulation.ecosystem import ecosystem_catalog; import json; print(json.dumps(ecosystem_catalog(), indent=2))"
 ```
 
+## Civilization challenges (S44+)
+
+```bash
+# every kind, its completion rule, unit, and requirements
+curl -s localhost:8000/api/challenges | jq
+# ask a world to do something measurable
+curl -s -X POST localhost:8000/api/worlds/1/challenges \
+  -H "Content-Type: application/json" \
+  -d '{"kind":"settlement","target":2,"name":"Our home"}'
+# every challenge and its live metric
+curl -s localhost:8000/api/worlds/1/challenges | jq
+# one challenge (an active discovery hides its center)
+curl -s localhost:8000/api/worlds/1/challenges/1 | jq
+```
+
+Kinds: `bridge` (planks on a deterministic water span), `settlement`
+(members in one settlement), `transport` (storage above the start
+baseline), `winter` (survivors when the next spring arrives; requires an
+ecosystem), `game` (a newly proposed game), `discovery` (any entity
+enters a hidden region). One challenge per kind per world. Wood and stone
+blocks can be built over water and walked on; `remove` refuses a plank
+under a standing entity. Discovery reports `{"hidden": true}` until it is
+completed, then reveals its center. Verdicts are `active`, `completed`,
+or `failed`, with `completed_tick`/`failed_reason` and metrics in
+`value`/`target`/`unit` form.
+
 ## Database (S02+)
 
 ```bash

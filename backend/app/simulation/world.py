@@ -20,6 +20,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from app.simulation.bus import EventBus
+from app.simulation.challenges import Challenge, build_challenge
 from app.simulation.ecosystem import Ecosystem
 from app.simulation.errors import CellOccupiedError, InvalidPositionError
 from app.simulation.events import Event, EventTypes
@@ -239,6 +240,9 @@ class World:
         # Ecosystem (S43): opt-in life and climate. Absent means the world
         # is exactly the inert Void it was before this sprint.
         self._ecosystem: Ecosystem | None = None
+        # Civilization challenges (S44): measurable asks, keyed by id.
+        self._challenges: dict[int, Challenge] = {}
+        self._next_challenge_id = 1
         # Routed letters (S28): named, group and global messages, as
         # dicts — {sender, kind, address, message, tick, recipients}.
         # The recipients are frozen at send time; leaving the world
@@ -375,6 +379,64 @@ class World:
         return self._ecosystem
 
     # ------------------------------------------------------------------
+    # Civilization challenges (S44)
+    # ------------------------------------------------------------------
+
+    @property
+    def challenges(self) -> list[Challenge]:
+        """Every challenge ever started here, in start order."""
+        return [self._challenges[key] for key in sorted(self._challenges)]
+
+    def challenge(self, challenge_id: int) -> Challenge | None:
+        return self._challenges.get(challenge_id)
+
+    def start_challenge(
+        self,
+        kind: str,
+        *,
+        target: int | None = None,
+        name: str | None = None,
+    ) -> Challenge:
+        """Ask the world to do something measurable (S44).
+
+        One challenge of each kind per world: a second bridge is not a
+        new question. The challenge's details are derived from the world
+        now — a water span, a hidden region, a storage baseline — and
+        never re-rolled later.
+        """
+        if any(challenge.kind == kind for challenge in self._challenges.values()):
+            raise ValueError(f"a {kind} challenge has already been started")
+        challenge = build_challenge(
+            self,
+            kind,
+            target=target,
+            name=name,
+            challenge_id=self._next_challenge_id,
+        )
+        self._challenges[challenge.id] = challenge
+        self._next_challenge_id += 1
+        self._add_event(
+            EventTypes.CHALLENGE_STARTED,
+            payload=challenge.to_dict(reveal=False),
+        )
+        return challenge
+
+    def _advance_challenges(self) -> None:
+        for challenge in self.challenges:
+            outcome = challenge.advance(self)
+            if outcome is None:
+                continue
+            event_type = (
+                EventTypes.CHALLENGE_COMPLETED
+                if outcome == "completed"
+                else EventTypes.CHALLENGE_FAILED
+            )
+            self._add_event(
+                event_type,
+                payload=challenge.to_dict(reveal=True),
+            )
+
+    # ------------------------------------------------------------------
     # Queries
     # ------------------------------------------------------------------
 
@@ -390,6 +452,11 @@ class World:
     def object_at(self, position: Position) -> WorldObject | None:
         object_id = self._occupancy.get(position)
         return self._objects.get(object_id) if object_id is not None else None
+
+    def _bridge_at(self, position: Position) -> bool:
+        """A bridge plank is an object you can stand on, not beside."""
+        obj = self.object_at(position)
+        return bool(obj is not None and obj.properties.get("bridge"))
 
     def get_object(self, object_id: int) -> WorldObject | None:
         return self._objects.get(object_id)
@@ -412,6 +479,7 @@ class World:
         self.tick += 1
         if self._ecosystem is not None:
             self._ecosystem.tick(self)
+        self._advance_challenges()
         return self.tick
 
     def place_object(
@@ -422,8 +490,9 @@ class World:
         properties: dict | None = None,
         created_by_agent_id: int | None = None,
         created_tick: int | None = None,
+        allow_water: bool = False,
     ) -> WorldObject:
-        self._validate_position(position)
+        self._validate_position(position, allow_water=allow_water)
         if position in self._occupancy:
             raise CellOccupiedError(f"cell {position.x},{position.y} already holds object {self._occupancy[position]}")
 
@@ -449,16 +518,19 @@ class World:
         )
         return obj
 
-    def _validate_position(self, position: Position) -> None:
+    def _validate_position(self, position: Position, *, allow_water: bool = False) -> None:
         if not isinstance(position.x, int) or not isinstance(position.y, int) or isinstance(position.x, bool) or isinstance(position.y, bool):
             raise InvalidPositionError(f"coordinates must be integers, got {position!r}")
         if not self.in_bounds(position):
             raise InvalidPositionError(
                 f"position {position.x},{position.y} is outside a {self.width}x{self.height} world"
             )
-        if self.terrain_at(position) is not Terrain.FLOOR:
+        terrain = self.terrain_at(position)
+        if terrain is not Terrain.FLOOR and not (
+            allow_water and terrain is Terrain.WATER
+        ):
             raise InvalidPositionError(
-                f"position {position.x},{position.y} is on {self.terrain_at(position).value}, objects need floor"
+                f"position {position.x},{position.y} is on {terrain.value}, objects need floor"
             )
 
     def _register(self, obj: WorldObject) -> None:
@@ -468,7 +540,9 @@ class World:
             # Carried in some entity's inventory — on the registry, off the grid.
             self._objects[obj.id] = obj
             return
-        self._validate_position(obj.position)
+        self._validate_position(
+            obj.position, allow_water=bool(obj.properties.get("bridge"))
+        )
         if obj.position in self._occupancy:
             raise CellOccupiedError(f"cell {obj.position.x},{obj.position.y} is occupied")
         self._objects[obj.id] = obj
@@ -492,8 +566,9 @@ class World:
             raise ValueError(f"actor id must be a positive integer, got {actor_id!r}")
         if actor_id in self._entities:
             raise ValueError(f"entity {actor_id} already exists")
-        self._validate_position(position)
-        if position in self._occupancy:
+        on_bridge = self._bridge_at(position)
+        self._validate_position(position, allow_water=on_bridge)
+        if position in self._occupancy and not on_bridge:
             raise CellOccupiedError(
                 f"cell {position.x},{position.y} holds object {self._occupancy[position]}"
             )
@@ -1321,6 +1396,10 @@ class World:
             "ecosystem": (
                 self._ecosystem.summary(self) if self._ecosystem is not None else None
             ),
+            # S44: challenge summaries; discovery stays hidden until found.
+            "challenges": [
+                challenge.to_dict(reveal=False) for challenge in self.challenges
+            ],
         }
 
     def to_dict(self) -> dict:
@@ -1414,6 +1493,12 @@ class World:
             "ecosystem": (
                 self._ecosystem.to_dict() if self._ecosystem is not None else None
             ),
+            # Challenges (S44), whole, including hidden discovery centres
+            # a resumed world still needs to judge.
+            "challenges": [
+                challenge.to_dict(reveal=True) for challenge in self.challenges
+            ],
+            "next_challenge_id": self._next_challenge_id,
         }
 
     @classmethod
@@ -1565,6 +1650,16 @@ class World:
             self._lexicons[int(entity_id)] = Lexicon.from_dict(lexicon_data)
         if data.get("ecosystem"):
             self._ecosystem = Ecosystem.from_dict(data["ecosystem"])
+        for challenge_data in data.get("challenges") or []:
+            try:
+                challenge = Challenge.from_dict(challenge_data)
+            except (KeyError, TypeError, ValueError):
+                continue
+            self._challenges[challenge.id] = challenge
+        self._next_challenge_id = max(
+            int(data.get("next_challenge_id") or 1),
+            max(self._challenges, default=0) + 1,
+        )
 
     def render(self) -> str:
         """ASCII view of the world. Terrain chars, then objects, then
