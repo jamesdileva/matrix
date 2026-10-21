@@ -94,6 +94,8 @@ class EventTypes:
     CHALLENGE_STARTED = "CHALLENGE_STARTED"
     CHALLENGE_COMPLETED = "CHALLENGE_COMPLETED"
     CHALLENGE_FAILED = "CHALLENGE_FAILED"
+    # S45: one recorded human change, with its id and details.
+    INTERVENTION = "INTERVENTION"
 
 
 @dataclass(frozen=True)

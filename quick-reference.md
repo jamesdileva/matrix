@@ -761,6 +761,49 @@ completed, then reveals its center. Verdicts are `active`, `completed`,
 or `failed`, with `completed_tick`/`failed_reason` and metrics in
 `value`/`target`/`unit` form.
 
+## Human interventions (S45+)
+
+```bash
+# every kind, its parameters, and the measured counts
+curl -s localhost:8000/api/interventions | jq
+# give an agent facts (recipe:/pattern: strings are made usable)
+curl -s -X POST localhost:8000/api/worlds/1/interventions \
+  -H "Content-Type: application/json" \
+  -d '{"kind":"provide_information","agent_id":1,"facts":["fire is hot","recipe:door"]}'
+# take facts and technology away
+curl -s -X POST localhost:8000/api/worlds/1/interventions \
+  -H "Content-Type: application/json" \
+  -d '{"kind":"remove_information","agent_id":1,"facts":["fire is hot"]}'
+# place an object on a free floor cell
+curl -s -X POST localhost:8000/api/worlds/1/interventions \
+  -H "Content-Type: application/json" \
+  -d '{"kind":"introduce_object","object_type":"tree","x":8,"y":8,"quantity":7}'
+# set the goal that shapes the agent's next decisions
+curl -s -X POST localhost:8000/api/worlds/1/interventions \
+  -H "Content-Type: application/json" \
+  -d '{"kind":"give_task","agent_id":1,"task":"build a shelter before winter"}'
+# participant joins / leaves an existing population (join the world first)
+curl -s -X POST localhost:8000/api/worlds/1/participant/join -d '{}' \
+  -H "Content-Type: application/json"
+curl -s -X POST localhost:8000/api/worlds/1/interventions \
+  -H "Content-Type: application/json" -d '{"kind":"join_population","population_id":1}'
+curl -s -X POST localhost:8000/api/worlds/1/interventions \
+  -H "Content-Type: application/json" -d '{"kind":"leave_population"}'
+# history and one outcome: baseline, current, delta
+curl -s localhost:8000/api/worlds/1/interventions | jq
+curl -s localhost:8000/api/worlds/1/interventions/1 | jq
+```
+
+Kinds: `provide_information`, `remove_information`, `introduce_object`,
+`give_task`, `join_population`, `leave_population`. Each POST returns the
+intervention with `baseline`, `current`, and numeric `delta` over tick,
+entities, population, objects, knowledge facts, known recipes/patterns,
+settlements, games, completed challenges, messages, and total resources.
+Interventions are persisted with the world and announced by
+`INTERVENTION` events. The participant's population membership lives on
+the participant entity, so it survives save/restore and can receive
+`announce` messages addressed to that population.
+
 ## Database (S02+)
 
 ```bash

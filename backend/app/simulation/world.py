@@ -27,6 +27,7 @@ from app.simulation.events import Event, EventTypes
 from app.simulation.budget import AGENT_KINDS, Budget, KINDS, LimitExceeded
 from app.simulation.games import GameSession, validate_rules
 from app.simulation.geometry import Position
+from app.simulation.interventions import Intervention
 from app.simulation.language import Lexicon, concepts_in
 from app.simulation.technology import (
     BASE_RECIPES,
@@ -243,6 +244,10 @@ class World:
         # Civilization challenges (S44): measurable asks, keyed by id.
         self._challenges: dict[int, Challenge] = {}
         self._next_challenge_id = 1
+        # Human interventions (S45): recorded operator changes, each with
+        # the world's counts at the moment it was applied.
+        self._interventions: dict[int, Intervention] = {}
+        self._next_intervention_id = 1
         # Routed letters (S28): named, group and global messages, as
         # dicts — {sender, kind, address, message, tick, recipients}.
         # The recipients are frozen at send time; leaving the world
@@ -435,6 +440,48 @@ class World:
                 event_type,
                 payload=challenge.to_dict(reveal=True),
             )
+
+    # ------------------------------------------------------------------
+    # Human interventions (S45)
+    # ------------------------------------------------------------------
+
+    @property
+    def interventions(self) -> list[Intervention]:
+        """Every intervention applied here, in application order."""
+        return [self._interventions[key] for key in sorted(self._interventions)]
+
+    def intervention(self, intervention_id: int) -> Intervention | None:
+        return self._interventions.get(intervention_id)
+
+    def record_intervention(
+        self,
+        kind: str,
+        *,
+        target: int | None = None,
+        details: dict | None = None,
+        baseline: dict | None = None,
+    ) -> Intervention:
+        """Store one applied human change and announce it on the timeline."""
+        intervention = Intervention(
+            id=self._next_intervention_id,
+            kind=kind,
+            tick=self.tick,
+            target=target,
+            details=details or {},
+            baseline=baseline or {},
+        )
+        self._interventions[intervention.id] = intervention
+        self._next_intervention_id += 1
+        self._add_event(
+            EventTypes.INTERVENTION,
+            target_id=intervention.id,
+            payload={
+                "kind": kind,
+                "target": target,
+                "details": dict(intervention.details),
+            },
+        )
+        return intervention
 
     # ------------------------------------------------------------------
     # Queries
@@ -1005,6 +1052,31 @@ class World:
                     granted.append(item)
         return granted
 
+    def revoke_knowledge(self, actor_id: int, knowledge: list) -> list[str]:
+        """Take technology knowledge away from one entity (S45).
+
+        Plain facts are the agent's own list and are removed by the host;
+        this method handles the world-side recipe/pattern sets that make
+        technology usable. Returns the items actually revoked.
+        """
+        revoked: list[str] = []
+        for item in knowledge or []:
+            if not isinstance(item, str):
+                continue
+            if item.startswith("recipe:"):
+                name = item[len("recipe:"):]
+                known = self._known_recipes.get(actor_id)
+                if known is not None and name in known:
+                    known.discard(name)
+                    revoked.append(item)
+            elif item.startswith("pattern:"):
+                name = item[len("pattern:"):]
+                known = self._known_patterns.get(actor_id)
+                if known is not None and name in known:
+                    known.discard(name)
+                    revoked.append(item)
+        return revoked
+
     def discoverable(self, actor_id: int) -> list[Recipe]:
         """Recipes the world knows that this entity does not, and could
         experiment its way to from what it already carries (S29)."""
@@ -1400,6 +1472,10 @@ class World:
             "challenges": [
                 challenge.to_dict(reveal=False) for challenge in self.challenges
             ],
+            # S45: the operator's recorded changes and their baselines.
+            "interventions": [
+                intervention.to_dict() for intervention in self.interventions
+            ],
         }
 
     def to_dict(self) -> dict:
@@ -1499,6 +1575,11 @@ class World:
                 challenge.to_dict(reveal=True) for challenge in self.challenges
             ],
             "next_challenge_id": self._next_challenge_id,
+            # Interventions (S45), with the baselines they are judged by.
+            "interventions": [
+                intervention.to_dict() for intervention in self.interventions
+            ],
+            "next_intervention_id": self._next_intervention_id,
         }
 
     @classmethod
@@ -1659,6 +1740,16 @@ class World:
         self._next_challenge_id = max(
             int(data.get("next_challenge_id") or 1),
             max(self._challenges, default=0) + 1,
+        )
+        for intervention_data in data.get("interventions") or []:
+            try:
+                intervention = Intervention.from_dict(intervention_data)
+            except (KeyError, TypeError, ValueError):
+                continue
+            self._interventions[intervention.id] = intervention
+        self._next_intervention_id = max(
+            int(data.get("next_intervention_id") or 1),
+            max(self._interventions, default=0) + 1,
         )
 
     def render(self) -> str:

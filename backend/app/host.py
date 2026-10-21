@@ -28,7 +28,9 @@ from app.simulation.agent import Agent
 from app.simulation.budget import AGENT_KINDS as BUDGET_KINDS, Budget
 from app.simulation.bus import EventBus
 from app.simulation.engine import Engine
+from app.simulation.errors import CellOccupiedError, InvalidPositionError
 from app.simulation.events import EventTypes
+from app.simulation.interventions import INTERVENTION_KINDS, world_metrics
 from app.simulation.model_policy import ModelPolicy
 from app.simulation.policies import ForagerPolicy, GathererPolicy, WanderPolicy
 from app.simulation.population import PopulationManager, SpawnRule
@@ -214,7 +216,13 @@ class WorldHost:
         position = self.engine.world.entity_position(PARTICIPANT_ENTITY_ID)
         if position is None:
             return None
-        return {"entity_id": PARTICIPANT_ENTITY_ID, "position": position.to_dict()}
+        return {
+            "entity_id": PARTICIPANT_ENTITY_ID,
+            "position": position.to_dict(),
+            "population_id": self.engine.world.population_of(
+                PARTICIPANT_ENTITY_ID
+            ),
+        }
 
     def participant_join(self) -> dict:
         """Enter the world as an entity on the first free floor cell.
@@ -238,6 +246,7 @@ class WorldHost:
                     return {
                         "entity_id": PARTICIPANT_ENTITY_ID,
                         "position": position.to_dict(),
+                        "population_id": None,
                         "joined": True,
                     }
         raise HTTPException(status_code=409, detail="no free cell for a participant")
@@ -246,8 +255,329 @@ class WorldHost:
         """Leave the world; the entity (and its events) go with it."""
         if self.participant is None:
             return {"entity_id": PARTICIPANT_ENTITY_ID, "left": False}
+        self.engine.world.set_population(PARTICIPANT_ENTITY_ID, None)
         self.engine.world.remove_entity(PARTICIPANT_ENTITY_ID)
         return {"entity_id": PARTICIPANT_ENTITY_ID, "left": True}
+
+    # ------------------------------------------------------------------
+    # Human interventions (S45)
+    # ------------------------------------------------------------------
+
+    def intervention_metrics(self) -> dict:
+        """The counts an intervention is measured against, right now."""
+        return world_metrics(self.engine.world, self.engine.agents)
+
+    def _intervention_agent(self, agent_id):
+        if (
+            isinstance(agent_id, bool)
+            or not isinstance(agent_id, int)
+        ):
+            raise HTTPException(status_code=400, detail="agent_id must be an integer")
+        for agent in self.engine.agents:
+            if agent.agent_id == agent_id:
+                if agent.status != "alive" or agent.position is None:
+                    raise HTTPException(
+                        status_code=409, detail=f"agent {agent_id} is not alive"
+                    )
+                return agent
+        raise HTTPException(status_code=404, detail=f"agent {agent_id} not in world")
+
+    @staticmethod
+    def _intervention_facts(facts) -> list[str]:
+        if isinstance(facts, str):
+            facts = [facts]
+        if not isinstance(facts, (list, tuple)):
+            raise HTTPException(status_code=400, detail="facts must be a list of strings")
+        cleaned = [
+            fact.strip()
+            for fact in facts
+            if isinstance(fact, str) and fact.strip()
+        ]
+        if not cleaned:
+            raise HTTPException(status_code=400, detail="at least one fact is required")
+        return cleaned
+
+    def _record_intervention(
+        self,
+        kind: str,
+        *,
+        target: int | None,
+        details: dict,
+        baseline: dict,
+    ):
+        return self.engine.world.record_intervention(
+            kind,
+            target=target,
+            details=details,
+            baseline=baseline,
+        )
+
+    def _intervention_response(self, intervention, **extra) -> dict:
+        return {
+            "world_id": self.world_id,
+            "intervention": intervention.to_dict(current=self.intervention_metrics()),
+            **extra,
+        }
+
+    def provide_information(self, *, agent_id: int, facts) -> dict:
+        """Teach one agent plain facts and, when possible, technology."""
+        agent = self._intervention_agent(agent_id)
+        cleaned = self._intervention_facts(facts)
+        baseline = self.intervention_metrics()
+        new_facts: list[str] = []
+        technology: list[str] = []
+        for fact in cleaned:
+            if fact not in agent.knowledge:
+                agent.knowledge.append(fact)
+                new_facts.append(fact)
+            technology.extend(
+                self.engine.world.grant_knowledge(agent.agent_id, [fact])
+            )
+        intervention = self._record_intervention(
+            "provide_information",
+            target=agent.agent_id,
+            details={
+                "agent_id": agent.agent_id,
+                "facts": cleaned,
+                "new_facts": new_facts,
+                "technology": sorted(set(technology)),
+            },
+            baseline=baseline,
+        )
+        return self._intervention_response(
+            intervention,
+            agent_id=agent.agent_id,
+            new_facts=new_facts,
+            technology=sorted(set(technology)),
+        )
+
+    def remove_information(self, *, agent_id: int, facts) -> dict:
+        """Take facts and usable technology away from one agent."""
+        agent = self._intervention_agent(agent_id)
+        cleaned = self._intervention_facts(facts)
+        baseline = self.intervention_metrics()
+        removed: list[str] = []
+        missing: list[str] = []
+        revoked: list[str] = []
+        for fact in cleaned:
+            if fact in agent.knowledge:
+                agent.knowledge[:] = [item for item in agent.knowledge if item != fact]
+                removed.append(fact)
+            else:
+                missing.append(fact)
+            revoked.extend(self.engine.world.revoke_knowledge(agent.agent_id, [fact]))
+        if not removed and not revoked:
+            raise HTTPException(
+                status_code=400,
+                detail=f"agent {agent.agent_id} does not carry any of those facts",
+            )
+        intervention = self._record_intervention(
+            "remove_information",
+            target=agent.agent_id,
+            details={
+                "agent_id": agent.agent_id,
+                "facts": cleaned,
+                "removed": removed,
+                "missing": missing,
+                "revoked_technology": sorted(set(revoked)),
+            },
+            baseline=baseline,
+        )
+        return self._intervention_response(
+            intervention,
+            agent_id=agent.agent_id,
+            removed=removed,
+            missing=missing,
+            revoked_technology=sorted(set(revoked)),
+        )
+
+    def introduce_object(
+        self,
+        *,
+        object_type: str,
+        x: int,
+        y: int,
+        quantity: int | None = None,
+        properties: dict | None = None,
+    ) -> dict:
+        """Place a new object on the grid, without an agent action."""
+        if not isinstance(object_type, str) or not object_type.strip():
+            raise HTTPException(status_code=400, detail="object_type is required")
+        if (
+            isinstance(x, bool)
+            or isinstance(y, bool)
+            or not isinstance(x, int)
+            or not isinstance(y, int)
+        ):
+            raise HTTPException(status_code=400, detail="x and y must be integers")
+        if quantity is not None and (
+            isinstance(quantity, bool)
+            or not isinstance(quantity, int)
+            or quantity < 0
+        ):
+            raise HTTPException(
+                status_code=400, detail="quantity must be a non-negative integer"
+            )
+        if properties is not None and not isinstance(properties, dict):
+            raise HTTPException(status_code=400, detail="properties must be an object")
+        props = dict(properties or {})
+        if quantity is not None:
+            props["quantity"] = quantity
+        baseline = self.intervention_metrics()
+        try:
+            obj = self.engine.world.place_object(
+                object_type.strip(),
+                Position(x, y),
+                properties=props or None,
+                created_by_agent_id=(
+                    PARTICIPANT_ENTITY_ID if self.participant is not None else None
+                ),
+            )
+        except (CellOccupiedError, InvalidPositionError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        intervention = self._record_intervention(
+            "introduce_object",
+            target=obj.id,
+            details={
+                "object_id": obj.id,
+                "object_type": obj.type,
+                "position": obj.position.to_dict(),
+                "properties": dict(obj.properties),
+            },
+            baseline=baseline,
+        )
+        return self._intervention_response(
+            intervention, object=obj.to_dict()
+        )
+
+    def give_task(self, *, agent_id: int, task: str) -> dict:
+        """Set the goal that shapes an agent's next decisions."""
+        agent = self._intervention_agent(agent_id)
+        if not isinstance(task, str) or not task.strip():
+            raise HTTPException(status_code=400, detail="task is required")
+        task = task.strip()
+        baseline = self.intervention_metrics()
+        previous = agent.goal
+        agent.goal = task
+        intervention = self._record_intervention(
+            "give_task",
+            target=agent.agent_id,
+            details={
+                "agent_id": agent.agent_id,
+                "task": task,
+                "previous_goal": previous,
+            },
+            baseline=baseline,
+        )
+        return self._intervention_response(
+            intervention,
+            agent_id=agent.agent_id,
+            task=task,
+            previous_goal=previous,
+        )
+
+    def join_population(self, *, population_id: int) -> dict:
+        """Make the participant a member of an existing population."""
+        if self.participant is None:
+            raise HTTPException(
+                status_code=409, detail="no participant in this world; join first"
+            )
+        manager = self.engine.populations
+        if manager is None:
+            raise HTTPException(
+                status_code=409, detail="this world has no populations"
+            )
+        if (
+            isinstance(population_id, bool)
+            or not isinstance(population_id, int)
+        ):
+            raise HTTPException(status_code=400, detail="population_id must be an integer")
+        try:
+            manager.get(population_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        current = self.engine.world.population_of(PARTICIPANT_ENTITY_ID)
+        if current == population_id:
+            return {
+                "world_id": self.world_id,
+                "joined": False,
+                "participant": self.participant,
+            }
+        baseline = self.intervention_metrics()
+        self.engine.world.set_population(PARTICIPANT_ENTITY_ID, population_id)
+        intervention = self._record_intervention(
+            "join_population",
+            target=population_id,
+            details={
+                "population_id": population_id,
+                "previous_population_id": current,
+            },
+            baseline=baseline,
+        )
+        return self._intervention_response(
+            intervention, joined=True, participant=self.participant
+        )
+
+    def leave_population(self) -> dict:
+        """End the participant's population membership."""
+        if self.participant is None:
+            raise HTTPException(
+                status_code=409, detail="no participant in this world; join first"
+            )
+        current = self.engine.world.population_of(PARTICIPANT_ENTITY_ID)
+        if current is None:
+            return {
+                "world_id": self.world_id,
+                "left": False,
+                "participant": self.participant,
+            }
+        baseline = self.intervention_metrics()
+        self.engine.world.set_population(PARTICIPANT_ENTITY_ID, None)
+        intervention = self._record_intervention(
+            "leave_population",
+            target=current,
+            details={"population_id": current},
+            baseline=baseline,
+        )
+        return self._intervention_response(
+            intervention, left=True, participant=self.participant
+        )
+
+    def intervene(self, kind: str, **params) -> dict:
+        """Apply one kind from the catalog; unknown kinds are a 400."""
+        if kind not in INTERVENTION_KINDS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown intervention kind {kind!r}",
+            )
+        if kind == "provide_information":
+            return self.provide_information(
+                agent_id=params.get("agent_id"),
+                facts=params.get("facts"),
+            )
+        if kind == "remove_information":
+            return self.remove_information(
+                agent_id=params.get("agent_id"),
+                facts=params.get("facts"),
+            )
+        if kind == "introduce_object":
+            return self.introduce_object(
+                object_type=params.get("object_type"),
+                x=params.get("x"),
+                y=params.get("y"),
+                quantity=params.get("quantity"),
+                properties=params.get("properties"),
+            )
+        if kind == "give_task":
+            return self.give_task(
+                agent_id=params.get("agent_id"),
+                task=params.get("task"),
+            )
+        if kind == "join_population":
+            return self.join_population(
+                population_id=params.get("population_id")
+            )
+        return self.leave_population()
 
     # ------------------------------------------------------------------
     # Conversation (S21)

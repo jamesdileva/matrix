@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S45 — Human Intervention Experiments
-- Completed sprints: S01–S44, S06B (S44 done 2026-10-19)
+- **Next sprint:** S46 — Observer vs Participant
+- Completed sprints: S01–S45, S06B (S45 done 2026-10-20)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -3520,6 +3520,91 @@ leaderboard, cross-world challenge studies, and a console panel.
 ### Commits
 - `dd08e9d` — S44: civilization challenges — measurable goals, bridges,
   winter, discovery
+
+## S45 — Human Intervention Experiments (2026-10-20)
+
+### Plan
+Give the participant a measured toolkit for changing a world, rather than
+only a body to move: hand an agent facts, take facts away, place objects,
+assign a goal, and join or leave a population. Record every intervention
+with a before-snapshot so the console can show what actually changed — the
+roadmap's "measure how intervention changes outcomes" — and persist that
+record with the world.
+
+### Scope
+In: an intervention catalog; world-backed intervention records with
+baseline metrics, events, snapshot/save/restore; six kinds
+(`provide_information`, `remove_information`, `introduce_object`,
+`give_task`, `join_population`, `leave_population`); participant
+membership in an existing population; current-versus-baseline metric
+deltas; API and tests.
+Out: controlled A/B/observer comparison (S46), causal inference, model
+prompt changes, frontend controls, arbitrary item ownership/economy
+changes.
+
+### Implementation
+- `backend/app/simulation/interventions.py` (new):
+  - `INTERVENTION_KINDS` and `INTERVENTION_CATALOG` cover
+    `provide_information`, `remove_information`, `introduce_object`,
+    `give_task`, `join_population`, and `leave_population`, with the
+    parameters each accepts; `intervention_catalog()` exposes the shelf.
+  - `world_metrics(world, agents)` measures tick, entities, population,
+    objects, knowledge facts, known recipes/patterns, settlements, games,
+    completed challenges, speech events, and total resources;
+    `metric_delta(before, current)` returns the numeric change.
+  - `Intervention` stores id, kind, tick, target, details, baseline, and
+    status; `to_dict(current=)` adds current metrics and delta; `from_dict`
+    restores tolerantly and rejects unknown kinds.
+- `world.py`: `_interventions`/`_next_intervention_id`, `interventions`,
+  `intervention`, and `record_intervention` (with `INTERVENTION` event,
+  snapshot summaries, save/restore); `revoke_knowledge` removes usable
+  recipe/pattern knowledge. Participant membership reuses the existing
+  `_entity_populations` map, so it persists and participates in population
+  message routing.
+- `host.py`: `intervention_metrics`; measured `provide_information`
+  (dedupes facts, grants usable technology), `remove_information` (reports
+  removed/missing/revoked), `introduce_object` (floor-only placement,
+  quantity/properties, participant attribution), `give_task` (sets the
+  observed `goal`), and participant `join_population`/`leave_population`
+  (require a joined participant and an existing population; repeats are
+  idempotent). `intervene()` validates the kind; participant summaries now
+  include `population_id`, and leaving the world clears membership.
+- `api/worlds.py`: `InterventionRequest`; `GET /api/interventions`;
+  `POST/GET /api/worlds/{id}/interventions`; and
+  `GET /api/worlds/{id}/interventions/{id}`. Every POST returns the
+  intervention with baseline, current metrics, and delta; list/detail do
+  the same against the world now. Unknown kind/agent/population/world and
+  invalid object placement return the appropriate 400/404/409.
+- Tests: `tests/test_interventions.py` (6) and
+  `tests/test_api_interventions.py` (8).
+- `quick-reference.md`: human-intervention commands and metric semantics.
+
+### Verification
+- `backend/.venv/Scripts/python -m pytest -q` via `cmd /c`: **758 passed**
+  (744 + 14 new), 1 warning, 260s.
+- Direct CLI (temporary script, no server): all six interventions applied
+  to one world. Provide added 3 facts and 1 recipe (`knowledge_facts` +3);
+  remove took 1 fact back (delta -1); object added a tree with
+  `quantity=5` (objects +1); task set the observed goal; join/leave moved
+  participant population 1 → None. Six records were listed with deltas,
+  and save/restore preserved all six, the next id (7), and membership
+  state.
+- Live API on port 8011, world 149 (16×16, Settlers population 118, two
+  agents): join world at (3, 1); provide `fire is hot` + `recipe:door`
+  (delta knowledge +2, technology `recipe:door`); remove `fire is hot`
+  (delta -1); introduce `tree` at (8, 8) with quantity 7 (delta objects
+  +1); task `build a shelter before winter` set the agent goal; join
+  population 118 then leave (participant `population_id` 118 → null);
+  list returned all six kinds; detail showed baseline/current; unknown
+  kind returned 400.
+- Environment note: the PowerShell wrapper intermittently reported
+  `EXIT=-1` for the 10,000-generation stress test before pytest output,
+  while the same test passed alone, with `-p no:cacheprovider`, and in a
+  `cmd /c` full-suite run. No test assertion failed; final full run was
+  green.
+
+### Commits
+(pending)
 
 
 

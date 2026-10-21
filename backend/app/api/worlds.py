@@ -59,6 +59,21 @@ class StartChallengeRequest(BaseModel):
     name: str | None = None
 
 
+class InterventionRequest(BaseModel):
+    """S45: one measured human change, dispatched by kind."""
+
+    kind: str
+    agent_id: int | None = None
+    facts: list[str] | None = None
+    object_type: str | None = None
+    x: int | None = None
+    y: int | None = None
+    quantity: int | None = Field(default=None, ge=0)
+    properties: dict | None = None
+    task: str | None = None
+    population_id: int | None = None
+
+
 class SpawnRulePayload(BaseModel):
     """A population's spawn rule, as data (S27)."""
 
@@ -181,6 +196,14 @@ def challenge_library() -> dict:
     from app.simulation.challenges import challenge_catalog
 
     return challenge_catalog()
+
+
+@router.get("/interventions")
+def intervention_library() -> dict:
+    """S45: the intervention shelf and the metrics they are measured by."""
+    from app.simulation.interventions import intervention_catalog
+
+    return intervention_catalog()
 
 
 @router.get("/worlds")
@@ -607,6 +630,54 @@ def get_challenge(world_id: int, challenge_id: int, request: Request) -> dict:
     return {
         "world_id": world_id,
         "challenge": challenge.to_dict(reveal=False),
+    }
+
+
+@router.get("/worlds/{world_id}/interventions")
+def list_interventions(world_id: int, request: Request) -> dict:
+    """S45: every recorded intervention, measured against the world now."""
+    host = _host(request, world_id)
+    current = host.intervention_metrics()
+    return {
+        "world_id": world_id,
+        "current": current,
+        "interventions": [
+            intervention.to_dict(current=current)
+            for intervention in host.engine.world.interventions
+        ],
+    }
+
+
+@router.post("/worlds/{world_id}/interventions", status_code=201)
+def apply_intervention(
+    world_id: int, payload: InterventionRequest, request: Request
+) -> dict:
+    """S45: apply one intervention and return its baseline/current delta."""
+    host = _host(request, world_id)
+    params = payload.model_dump(exclude_none=True)
+    kind = params.pop("kind")
+    return host.intervene(kind, **params)
+
+
+@router.get("/worlds/{world_id}/interventions/{intervention_id}")
+def get_intervention(
+    world_id: int, intervention_id: int, request: Request
+) -> dict:
+    """S45: one intervention with its outcome measurement."""
+    host = _host(request, world_id)
+    intervention = host.engine.world.intervention(intervention_id)
+    if intervention is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"intervention {intervention_id} not in world {world_id}"
+            ),
+        )
+    current = host.intervention_metrics()
+    return {
+        "world_id": world_id,
+        "current": current,
+        "intervention": intervention.to_dict(current=current),
     }
 
 
