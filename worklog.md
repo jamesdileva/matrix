@@ -3684,7 +3684,7 @@ multiple participants, and new persistence tables/migrations.
 - Roadmap S46 checklist: fully green.
 
 ### Commits
-- (this commit) — S46: observer vs participant — paired study, five-dimension comparison, catalog entry
+- `beef048` — S46: observer vs participant — paired study, five-dimension comparison, catalog entry [pushed]
 
 
 
