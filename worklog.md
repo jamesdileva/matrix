@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S46 — Observer vs Participant
-- Completed sprints: S01–S45, S06B (S45 done 2026-10-20)
+- **Next sprint:** S47 — Experiment Worker (simulation leaves the API process)
+- Completed sprints: S01–S46 (S46 done 2026-11-19)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -3606,6 +3606,85 @@ changes.
 ### Commits
 - `2ef7277` — S45: human intervention experiments — measured changes,
   tasks, participation
+
+## S46 — Observer vs Participant (2026-10-24)
+
+### Plan
+Ask the question the whole platform exists to answer: does a world develop
+differently when a human enters it? Run two otherwise identical worlds from
+one seed — one observed only, one where a participant joins, teaches, builds,
+speaks and works — and compare their development, culture, behaviour,
+technology and communication. Keep the study deterministic so the only
+difference is the participant, and store/export the whole result through the
+existing experiment API.
+
+### Scope
+In: a paired observer/participant study runner; a deterministic participant
+plan built on S45's intervention semantics (knowledge, task, objects, speech,
+population membership); five named comparison dimensions with numeric
+measures and per-measure deltas; scenario-catalog registration; stored and
+exportable results; tests and docs.
+Out: causal inference beyond the paired comparison, live-server participant
+control in this study, model-prompt changes, frontend console changes,
+multiple participants, and new persistence tables/migrations.
+
+### Implementation
+- `backend/app/experiments/observer.py` (new, resumed from the previous
+  session's draft and finished):
+  - `ParticipantPlan` — the human's first tick as data: population to
+    join, facts to teach, task to assign, objects to place, message to
+    speak, whether listeners learn the words. Tolerant `from_dict`
+    (pair-or-dict object forms, defaults preserved).
+  - `apply_participant_plan` — joins the population, grants facts
+    (usable technology flagged), sets the observed goal, places objects
+    at the nearest free floor to the participant, speaks, and lets
+    agents within `SPEECH_RADIUS` adopt the words (WORD_ADOPTED on the
+    timeline). Reports every effect plus a participant action count.
+  - `measure_world` — 34 measures across the roadmap's five dimensions
+    (development, culture, behaviour, technology, communication), read
+    off event counts, `world_metrics`, structures and the S42 language
+    summary. `compare_runs` returns per-dimension observer/participant/
+    delta with the changed measures named.
+  - `run_world` / `run_study` — same template, seed and tick span twice;
+    the participant is the only difference. Stored whole in
+    `ExperimentModel` (scenario `observer_vs_participant`, result JSON),
+    exportable via multi_world's `export_study`; CLI
+    `python -m app.experiments.observer`.
+  - Registered in the experiment API catalog: `_run_observer_study`
+    adapter (accepts an optional `participant_plan` param) and the
+    `observer_vs_participant` Scenario with template/seed/ticks knobs.
+- Two bugs fixed while bringing the draft to life (both caught by the
+  smoke run, neither by reading): `_nearest_floor` blocked cells from
+  `set(world.entity_positions())` — dict keys (agent ids), not the
+  positions, so the participant could try to spawn on an occupied cell;
+  and `chosen_plan = participant and (...)` left `False` for observer
+  runs, which sailed through a `is not None` guard.
+
+### Verification
+- Tests: pytest **771 passed** (758 + 13 new in `tests/test_observer.py`;
+  the S40 catalog test now expects the third scenario).
+- Plan semantics on a controlled world: facts land in the agent's
+  knowledge, the task becomes its goal, the monument drops within one
+  cell of the participant, the adjacent agent adopts the spoken words
+  (WORD_ADOPTED events actor 1), action count 2+1+1+1+1 = 6.
+- Determinism: two observer runs of the same seed produce identical
+  measures; the paired comparison then shows `entities ≥ 1`,
+  `participant_actions > 0`, `knowledge_facts > 0`, `speech > 0` — the
+  human is the only difference.
+- Storage and export: study row completed with result JSON; export file
+  round-trips. Through the API: catalog lists the scenario, POST runs
+  it, detail carries the comparison, export is valid JSON.
+- CLI: `--template void --seed observer --ticks 40` →
+  development: entities, objects · culture: knowledge_facts, vocabulary,
+  shared_words · behavior: moves, participant_actions · technology:
+  known_recipes · communication: speech, words_invented, words_adopted —
+  11 differing measures, export written.
+- No migration: `ExperimentModel` already stores the whole result (as
+  the previous session's notes predicted).
+- Roadmap S46 checklist: fully green.
+
+### Commits
+- (this commit) — S46: observer vs participant — paired study, five-dimension comparison, catalog entry
 
 
 

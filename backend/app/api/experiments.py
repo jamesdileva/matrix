@@ -150,6 +150,21 @@ def _run_lineage_study(session_factory, params: dict, name: str | None) -> dict:
     return _name_override(session_factory, study, name)
 
 
+def _run_observer_study(session_factory, params: dict, name: str | None) -> dict:
+    from app.experiments.observer import ParticipantPlan, run_study
+
+    plan_data = params.get("participant_plan")
+    plan = ParticipantPlan.from_dict(plan_data) if isinstance(plan_data, dict) else None
+    return run_study(
+        session_factory=session_factory,
+        template=str(params.get("template", "void")),
+        seed=str(params.get("seed", "observer")),
+        ticks=_optional_int(params.get("ticks")),
+        participant_plan=plan,
+        name=name,
+    )
+
+
 _SCENARIOS: dict[str, Scenario] = {
     "multi_world": Scenario(
         name="multi_world",
@@ -192,6 +207,24 @@ _SCENARIOS: dict[str, Scenario] = {
                   help="comma-separated minds, one per run, when vary=model"),
         ),
         runner=_run_lineage_study,
+    ),
+    "observer_vs_participant": Scenario(
+        name="observer_vs_participant",
+        title="Observer vs participant",
+        description=(
+            "Run two worlds from one seed — one left alone, one joined by a "
+            "participant who joins a population, teaches an agent, assigns a "
+            "task, places objects and speaks — then compare development, "
+            "culture, behaviour, technology and communication, measure by "
+            "measure. Same seed, same template, one difference."
+        ),
+        params=(
+            Param("template", "template", "choice", "void", choices=["void"]),
+            Param("seed", "seed", "str", "observer"),
+            Param("ticks", "ticks", "int", None, minimum=1, maximum=10000,
+                  help="leave blank for the template's own span"),
+        ),
+        runner=_run_observer_study,
     ),
 }
 

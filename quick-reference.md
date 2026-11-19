@@ -640,11 +640,17 @@ file.
 ## Experiment API (S40+)
 
 ```bash
-# the scenario catalog (each study and its knobs)
+# the scenario catalog (each study and its knobs: multi_world,
+# lineage_study, observer_vs_participant)
 curl -s localhost:8000/api/scenarios
-# run a study over HTTP (multi_world or lineage_study)
+# run a study over HTTP (multi_world, lineage_study, observer_vs_participant)
 curl -s -X POST localhost:8000/api/experiments -H "Content-Type: application/json" \
   -d '{"scenario":"multi_world","name":"my-study","params":{"worlds":10,"template":"void","seed":"lab","ticks":30}}'
+# observer vs participant: one seed, two worlds, one difference (S46)
+curl -s -X POST localhost:8000/api/experiments -H "Content-Type: application/json" \
+  -d '{"scenario":"observer_vs_participant","params":{"template":"void","seed":"observer","ticks":40}}'
+# or run it straight from the shell (no server; writes to the dev database)
+cd backend && .venv/Scripts/python -m app.experiments.observer --template void --seed observer --ticks 40 --export ../observer-study.json
 # list studies (newest first; optional ?scenario=)
 curl -s localhost:8000/api/experiments
 # inspect one, with its stored result
