@@ -105,6 +105,14 @@ def list_scenarios() -> dict:
     return {"scenarios": scenarios_payload()}
 
 
+@router.get("/profiles")
+def list_profiles() -> dict:
+    """The hardware profiles a run may request (S49)."""
+    from app.profiles import HARDWARE_PROFILES
+
+    return {"profiles": [p.to_dict() for p in HARDWARE_PROFILES.values()]}
+
+
 @router.get("/experiments")
 def list_experiments(request: Request, scenario: str | None = None, limit: int = 50) -> dict:
     factory = _session_factory(request)

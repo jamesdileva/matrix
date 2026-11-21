@@ -501,8 +501,18 @@ export const api = {
   step: (id: number) => post(`/api/worlds/${id}/step`) as unknown as Promise<WorldState>,
   remove: (id: number) => request(`/api/worlds/${id}`, { method: "DELETE" }),
 
-  // S40: the experiment laboratory.
+  // S40: the experiment laboratory. Since S47 a POST enqueues (202) for
+  // the worker; "wait": true keeps the inline study body (201).
   scenarios: () => request<{ scenarios: Scenario[] }>("/api/scenarios"),
+  profiles: () =>
+    request<{
+      profiles: {
+        name: string;
+        workers: number;
+        max_parallel_worlds: number;
+        description: string;
+      }[];
+    }>("/api/profiles"),
   experiments: (scenario?: string) =>
     request<{ experiments: ExperimentSummary[] }>(
       `/api/experiments${scenario ? `?scenario=${encodeURIComponent(scenario)}` : ""}`,
@@ -512,10 +522,40 @@ export const api = {
     scenario: string;
     name?: string;
     params: Record<string, unknown>;
+    wait?: boolean;
+    profile?: string;
   }) =>
     post("/api/experiments", body) as unknown as Promise<{
-      scenario: string;
-      study: { experiment_id: number; [key: string]: unknown };
+      queued?: boolean;
+      experiment?: ExperimentSummary;
+      scenario?: string;
+      study?: { experiment_id: number; [key: string]: unknown };
     }>,
+  waitForExperiment: async (
+    id: number,
+    { intervalMs = 1000, timeoutMs = 300000 } = {},
+  ) => {
+    // Poll a queued/running experiment until the worker finishes it.
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const detail = await request<ExperimentDetail>(`/api/experiments/${id}`);
+      if (detail.status === "completed" || detail.status === "failed") {
+        return detail;
+      }
+      if (Date.now() > deadline) {
+        throw new Error(`experiment ${id} did not finish in time`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+  },
+  compareExperiments: (first: number, second: number) =>
+    request<{
+      outcomes_identical: boolean;
+      profiles: (string | null)[];
+      runtime: {
+        first: Record<string, unknown>;
+        second: Record<string, unknown>;
+      };
+    }>(`/api/experiments/${first}/compare/${second}`),
   exportExperimentUrl: (id: number) => `/api/experiments/${id}/export`,
 };

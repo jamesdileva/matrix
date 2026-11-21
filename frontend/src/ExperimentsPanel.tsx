@@ -38,14 +38,37 @@ function isScalarSummary(value: unknown): value is ScalarSummary {
   );
 }
 
+type AttestationRow = {
+  item: string;
+  spec: string;
+  status: string;
+  citation: string;
+  evidence: Record<string, unknown>;
+};
+
+type CompareVerdict = {
+  outcomes_identical: boolean;
+  profiles: (string | null)[];
+  runtime: {
+    first: Record<string, unknown>;
+    second: Record<string, unknown>;
+  };
+};
+
 export function ExperimentsPanel() {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [profiles, setProfiles] = useState<string[]>([]);
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
   const [selected, setSelected] = useState<ExperimentDetail | null>(null);
   const [scenarioName, setScenarioName] = useState<string>("");
   const [name, setName] = useState("");
   const [params, setParams] = useState<Record<string, unknown>>({});
+  const [profile, setProfile] = useState<string>("");
   const [busy, setBusy] = useState(false);
+  const [runStatus, setRunStatus] = useState<string | null>(null);
+  const [compareFirst, setCompareFirst] = useState<string>("");
+  const [compareSecond, setCompareSecond] = useState<string>("");
+  const [compareVerdict, setCompareVerdict] = useState<CompareVerdict | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const scenario = scenarios.find((item) => item.name === scenarioName) ?? null;
@@ -71,10 +94,25 @@ export function ExperimentsPanel() {
         }
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    api
+      .profiles()
+      .then((body) => setProfiles(body.profiles.map((item) => item.name)))
+      .catch(() => setProfiles([]));
     void loadExperiments();
     const timer = window.setInterval(() => void loadExperiments(), 3000);
     return () => window.clearInterval(timer);
   }, [loadExperiments]);
+
+  // S47: queued/running studies finish in the worker — refresh the list
+  // faster while any of them is in flight.
+  useEffect(() => {
+    const inflight = experiments.some(
+      (item) => item.status === "queued" || item.status === "running",
+    );
+    if (!inflight) return;
+    const timer = window.setInterval(() => void loadExperiments(), 1500);
+    return () => window.clearInterval(timer);
+  }, [experiments, loadExperiments]);
 
   function chooseScenario(next: string) {
     setScenarioName(next);
@@ -103,6 +141,7 @@ export function ExperimentsPanel() {
   async function run() {
     if (!scenario) return;
     setBusy(true);
+    setRunStatus(null);
     try {
       const clean: Record<string, unknown> = {};
       for (const param of scenario.params) {
@@ -113,9 +152,24 @@ export function ExperimentsPanel() {
         scenario: scenario.name,
         name: name || undefined,
         params: clean,
+        profile: profile || undefined,
       });
+      let id: number;
+      if (result.queued && result.experiment) {
+        // S47: the worker finishes queued studies; poll until terminal.
+        setRunStatus(`queued as #${result.experiment.id} — the worker is running it`);
+        await loadExperiments();
+        const detail = await api.waitForExperiment(result.experiment.id);
+        id = detail.id;
+        setRunStatus(`#${id} ${detail.status}`);
+      } else if (result.study) {
+        id = result.study.experiment_id;
+        setRunStatus(`#${id} completed`);
+      } else {
+        throw new Error("unexpected experiment response");
+      }
       await loadExperiments();
-      await inspect(result.study.experiment_id);
+      await inspect(id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -123,11 +177,36 @@ export function ExperimentsPanel() {
     }
   }
 
+  async function compare() {
+    const first = Number(compareFirst);
+    const second = Number(compareSecond);
+    if (!first || !second || first === second) return;
+    setBusy(true);
+    try {
+      setCompareVerdict(await api.compareExperiments(first, second));
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function statusColor(status: string): string {
+    if (status === "completed") return colors.accent;
+    if (status === "failed") return colors.error;
+    if (status === "running") return "#7fd8ff";
+    return colors.dim;
+  }
+
   const comparison = selected?.result?.comparison;
   const measures =
     comparison && typeof comparison.measures === "object"
       ? (comparison.measures as Record<string, unknown>)
       : null;
+  const attestation = Array.isArray(selected?.result?.attestation)
+    ? (selected.result.attestation as AttestationRow[])
+    : [];
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 360px) 1fr", gap: "0.75rem" }}>
@@ -209,12 +288,90 @@ export function ExperimentsPanel() {
                   )}
                 </label>
               ))}
+              <label style={labelStyle}>
+                hardware profile
+                <select
+                  style={inputStyle}
+                  value={profile}
+                  onChange={(e) => setProfile(e.target.value)}
+                >
+                  <option value="">worker default (desktop)</option>
+                  {profiles.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                <span style={{ color: colors.dim, fontSize: "0.62rem" }}>
+                  same config on different hardware: identical outcomes,
+                  comparable runtimes (S49)
+                </span>
+              </label>
               <button style={buttonStyle} disabled={busy} onClick={() => void run()}>
-                {busy ? "running…" : "run"}
+                {busy ? "working…" : "run"}
               </button>
+              {runStatus && (
+                <p style={{ margin: 0, color: colors.dim, fontSize: "0.68rem" }}>
+                  {runStatus}
+                </p>
+              )}
             </>
           )}
           {error && <p style={{ margin: 0, color: colors.error, fontSize: "0.7rem" }}>{error}</p>}
+        </section>
+
+        <section style={panelStyle} aria-label="compare runs">
+          <h2 style={headingStyle}>compare two runs (S49)</h2>
+          <div style={{ display: "flex", gap: "0.4rem" }}>
+            <select
+              style={{ ...inputStyle, minWidth: 0 }}
+              value={compareFirst}
+              onChange={(e) => setCompareFirst(e.target.value)}
+            >
+              <option value="">first…</option>
+              {experiments
+                .filter((item) => item.status === "completed")
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    #{item.id} {item.name}
+                  </option>
+                ))}
+            </select>
+            <select
+              style={{ ...inputStyle, minWidth: 0 }}
+              value={compareSecond}
+              onChange={(e) => setCompareSecond(e.target.value)}
+            >
+              <option value="">second…</option>
+              {experiments
+                .filter((item) => item.status === "completed")
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    #{item.id} {item.name}
+                  </option>
+                ))}
+            </select>
+            <button
+              style={buttonStyle}
+              disabled={busy || !compareFirst || !compareSecond}
+              onClick={() => void compare()}
+            >
+              compare
+            </button>
+          </div>
+          {compareVerdict && (
+            <p style={{ margin: 0, fontSize: "0.72rem" }}>
+              <strong style={{ color: compareVerdict.outcomes_identical ? colors.accent : colors.error }}>
+                {compareVerdict.outcomes_identical ? "identical outcomes" : "outcomes differ"}
+              </strong>
+              <span style={{ color: colors.dim }}>
+                {" "}
+                · profiles {compareVerdict.profiles.join(" vs ") || "unknown"} · duration{" "}
+                {String(compareVerdict.runtime.first?.duration_s ?? "?")}s vs{" "}
+                {String(compareVerdict.runtime.second?.duration_s ?? "?")}s
+              </span>
+            </p>
+          )}
         </section>
 
         <section style={panelStyle} aria-label="experiments">
@@ -246,6 +403,10 @@ export function ExperimentsPanel() {
                 >
                   #{experiment.id} {experiment.name}
                   <span style={{ color: colors.dim }}> · {experiment.scenario}</span>
+                  <span style={{ color: statusColor(experiment.status) }}>
+                    {" "}
+                    · {experiment.status}
+                  </span>
                   {experiment.has_result ? "" : " · no result"}
                 </button>
               </li>
@@ -282,6 +443,32 @@ export function ExperimentsPanel() {
                 export JSON
               </a>
             </div>
+
+            {attestation.length > 0 && (
+              <>
+                <h2 style={headingStyle}>ultimate definition of done</h2>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.72rem" }}>
+                  <thead>
+                    <tr style={{ color: colors.dim, textAlign: "left" }}>
+                      <th style={cellStyle}>item</th>
+                      <th style={cellStyle}>verdict</th>
+                      <th style={cellStyle}>evidence</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attestation.map((row) => (
+                      <tr key={row.item}>
+                        <td style={cellStyle}>{row.item}</td>
+                        <td style={{ ...cellStyle, color: statusColor(row.status === "demonstrated" ? "completed" : "failed") }}>
+                          {row.status}
+                        </td>
+                        <td style={cellStyle}>{JSON.stringify(row.evidence)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
 
             {measures ? (
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.72rem" }}>

@@ -27,6 +27,14 @@ class Profile:
     max_parallel_worlds: int  # worlds a study may run at once
     description: str = ""
 
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "workers": self.workers,
+            "max_parallel_worlds": self.max_parallel_worlds,
+            "description": self.description,
+        }
+
 
 HARDWARE_PROFILES: dict[str, Profile] = {
     "tiny": Profile(

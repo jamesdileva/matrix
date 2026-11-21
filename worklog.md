@@ -4075,6 +4075,62 @@ milestone UI, packaging.
 ### Commits
 - `fb78302` — S51: final milestone - eight chapters, attestation, milestone report [pushed]
 
+## S52 — Console Depth (2026-11-21)
+
+### Plan
+The research console predated the worker: its run flow still assumed the
+S40 synchronous contract (POST → 201 → study body), which the S47 queue
+broke silently — the console could not run anything through the worker.
+S52 brings the console up to the current platform: the async run
+contract (enqueue → poll → inspect), hardware-profile selection (S49),
+status chips and faster refresh while runs are in flight, a compare view
+over two completed runs (S49 verdicts), and honest rendering of the
+Final Milestone's attestation table. Plus the small backend surface the
+console needs: `GET /api/profiles`, and a vite proxy that follows
+`FLOOD_API` (the dev backend lives on 8011 here).
+
+### Scope
+In: `api.ts` — runExperiment typed for the 202/queued + 201/study
+shapes with an optional `profile`, `profiles()`, `waitForExperiment`
+(poll until terminal), `compareExperiments`; ExperimentsPanel — profile
+dropdown, run-then-poll flow with a status line, status-coloured run
+chips, faster refresh while queued/running, compare-two-runs section,
+Ultimate-Definition-of-Done table for `the_flood` results; vite proxy
+env; `GET /api/profiles`; `Profile.to_dict`.
+Out: WebSocket push, run cancellation, editing catalog scenarios, Godot
+client depth (S53), packaging (S54).
+
+### Implementation
+- `frontend/src/api.ts`: `runExperiment` retyped for both POST shapes;
+  new `profiles()`, `compareExperiments(a, b)`, `waitForExperiment(id)`
+  (1 s poll, 5 min ceiling, returns on completed/failed).
+- `ExperimentsPanel.tsx`: the run flow enqueues, shows "queued as #N —
+  the worker is running it", polls to terminal, then inspects; a
+  hardware-profile dropdown (choices from `GET /api/profiles`, empty =
+  worker default); run list entries carry status-coloured chips and the
+  list refreshes every 1.5 s while anything is queued/running; a
+  compare section (two completed runs → verdict: identical outcomes,
+  profiles, durations); `the_flood` details render the Ultimate
+  Definition of Done table from `result.attestation`.
+- `vite.config.ts`: proxy target follows `FLOOD_API`.
+- Backend: `GET /api/profiles` (the four profiles as data);
+  `Profile.to_dict`.
+
+### Verification
+- `npm run build` clean (tsc + vite).
+- Live, in a real browser (driven end to end): console loaded against
+  the 8011 backend; The Flood scenario selected with the **cloud**
+  profile; run clicked → queued → the worker completed it (#158) → the
+  console polled to terminal, auto-selected the run and rendered the
+  Ultimate Definition of Done table (8/8 demonstrated, live evidence
+  per row); compare dropdowns list completed runs. Screenshot recorded.
+- Console shape check: scenario dropdown lists five scenarios; profile
+  choices tiny/desktop/gpu/cloud; compare selects populated from
+  completed runs.
+
+### Commits
+- (this commit) — S52: console depth - async run contract, profiles, compare, milestone attestation
+
 
 
 
