@@ -4130,6 +4130,50 @@ client depth (S53), packaging (S54).
 
 ### Commits
 - `37d6bf4` — S52: console depth - async run contract, profiles, compare, milestone attestation [pushed]
+- `3a7919d` — worklog: record S52 commit hash [pushed]
+
+## S53 — Godot Depth (2026-11-21)
+
+### Plan
+The Godot client grew participant mode and rich event formatting during
+the mid-roadmap sessions, but two operator surfaces were still missing:
+**world controls** (pause/resume/step — the console and CLI could do it,
+the 3D client could not) and the **agent inspector** (S14's feed — goal,
+generation, policy, resources, budget — for whichever agent you follow).
+S53 adds both, wired to the existing API routes, with the client's
+headless smoke and live E2E kept green.
+
+### Scope
+In: api.gd `pause_world`/`resume_world`/`step_world`/`get_agent`; world
+control buttons (pause/resume/step) in the client UI; the agent
+inspector panel — a right-anchored feed that polls the followed agent's
+detail (status, generation, policy, position, goal, resources, budget
+ceiling, children) at 0.6 Hz and clears on release.
+Out: connection settings UI (seed/agents stay env-driven), chat input,
+event filters, packaging the Godot client itself (export presets arrive
+with S54's packaging).
+
+### Implementation
+- `api.gd`: `pause_world`/`resume_world`/`step_world`/`get_agent`.
+- `main.gd`: control buttons (HBox, centre-top) with per-button API
+  calls; the `step` response is a full state snapshot and feeds
+  `_apply_state` directly; an inspector RichTextLabel (top-right) fed by
+  `_render_agent` — polled at 0.6 Hz while an agent is followed, cleared
+  on release; follow/release now set and clear `_inspect_id`.
+- Repair mid-sprint: an Edit clobbered `_smoke_finish`'s function
+  header — caught by reading the damaged region before running
+  anything.
+
+### Verification
+- Headless: `tests/smoke.gd` → **SMOKE OK**; full E2E against the live
+  8011 backend → **FLOOD_SMOKE OK world=168 tick=2 agents=3** with the
+  new UI built in.
+- Roadmap surface: pause/resume/step and the inspector ride routes that
+  were already verified server-side (S14/S47); interactive feel is the
+  user's when they open the client.
+
+### Commits
+- `d57a11c` — S53: godot depth - world controls, agent inspector [pushed; entry and hash landed together post-commit]
 
 
 
