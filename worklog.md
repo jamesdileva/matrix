@@ -4175,6 +4175,88 @@ with S54's packaging).
 ### Commits
 - `d57a11c` — S53: godot depth - world controls, agent inspector [pushed; entry and hash landed together post-commit]
 
+## S54 — Packaging (2026-11-21)
+
+### Plan
+The app should be an app. One command builds a `flood-server` bundle —
+the API, the worker machinery, and the research console as static files
+in one process — startable with a double-click or a single command, no
+Python or npm on the target machine. The Godot client gets export
+presets so the editor can produce its exe in one click. The console is
+served by the backend itself (same origin: no CORS, no npm needed).
+
+### Scope
+In: static console serving in `main.py` (mount `frontend/dist` when it
+exists — source layout and PyInstaller bundle layout both resolved;
+routers keep precedence, console at `/`); `backend/flood_server.py`
+entry (settings-driven host/port); `scripts/package.py` build pipeline
+(npm build → PyInstaller onedir with the console bundled → smoke);
+Godot `export_presets.cfg` (Windows Desktop preset); packaging docs and
+commands; tests for the static mount (present and absent).
+Out: Godot export automation (needs the editor's export templates),
+one-file builds (onedir starts faster and is easier to update),
+installers/MSI, code signing, macOS/Linux bundles.
+
+### Implementation
+- `main.py`: the lifespan mounts the built console at `/` via
+  `_console_dist()` (source `frontend/dist`; frozen `sys._MEIPASS`
+  layout — PyInstaller 6.x onedir puts data under `_internal`, one
+  level deeper than first guessed) with routers keeping precedence;
+  a fresh database gets the current schema at startup
+  (`Base.metadata.create_all` — a no-op on Alembic-managed databases,
+  which is what makes a packaged first run work at all).
+- `backend/flood_server.py`: the packaged entry — settings-driven
+  host/port, uvicorn runs the app in-process.
+- `scripts/package.py`: npm build → PyInstaller onedir (`--add-data`
+  ships the console, `--collect-all uvicorn` carries its dynamic
+  imports) → a 180 s smoke (health + console page) with per-attempt
+  failure logging; cwd-proofed (`os.chdir(ROOT)`).
+- `world-client/export_presets.cfg`: Windows Desktop preset.
+- Tests: `tests/test_console_serving.py` (3) — console served at `/`
+  with API precedence, 404 without a build, plus the real dev-tree
+  lookup (skipped when dist is absent).
+
+### Verification
+- Tests: pytest **820 passed** (817 + 3).
+- Packaging: `scripts/package.py` full run — npm console build,
+  PyInstaller bundle, **smoke passed: `health: ok` + console served**
+  from `dist/flood-server/flood-server.exe`.
+- Bugs the loop caught: the smoke function never imported `urllib` —
+  180 swallowed NameErrors disguised as "the server never answered"
+  (curl against the same exe worked instantly, which is what exposed
+  it); the bundle path candidates missed PyInstaller 6.x's `_internal`
+  data directory; `os` was used before import; and the first-run
+  schema gap (`no such table: world_snapshots`) only appeared once the
+  exe actually started — the create_all fix covers every future fresh
+  database.
+- Roadmap S54 checklist: packaged app builds, runs, serves API and
+  console ✅; Godot export presets in place ✅.
+
+### Commits
+- (this commit) — S54: packaging - flood-server bundle, console serving, export presets
+
+## S54 — Packaging (2026-11-21)
+
+### Plan
+The app should be an app. One command builds a `flood-server` bundle —
+the API, the worker machinery, and the research console as static files
+in one process — startable with a double-click or a single command, no
+Python or npm on the target machine. The Godot client gets export
+presets so the editor can produce its exe in one click. The console is
+served by the backend itself (same origin: no CORS, no npm needed).
+
+### Scope
+In: static console serving in `main.py` (mount `frontend/dist` when it
+exists — source layout and PyInstaller bundle layout both resolved;
+routers keep precedence, console at `/`); `backend/flood_server.py`
+entry (settings-driven host/port); `scripts/package.py` build pipeline
+(npm build → PyInstaller onedir with the console bundled → smoke);
+Godot `export_presets.cfg` (Windows Desktop preset); packaging docs and
+commands; tests for the static mount (present and absent).
+Out: Godot export automation (needs the editor's export templates),
+one-file builds (onedir starts faster and is easier to update),
+installers/MSI, code signing, macOS/Linux bundles.
+
 
 
 

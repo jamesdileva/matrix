@@ -57,6 +57,22 @@ PATH → newest winget install. If `godot` is already on your PATH, the usual
 `godot --path world-client` (from repo root) or `godot --path .` (from
 inside `world-client/`) works identically.
 
+## Packaging (S54)
+
+One command builds the app — API, workers' queue, and the research
+console in a single self-contained process:
+
+```bash
+backend/.venv/Scripts/python -m pip install pyinstaller   # once
+backend/.venv/Scripts/python scripts/package.py           # npm build + bundle + smoke
+```
+
+The result is `dist/flood-server/` — start `flood-server.exe` and open
+`http://127.0.0.1:8011`: the console is served at `/`, the API under
+`/api` (first run creates its own database; `--port` and `FLOOD_PORT`
+override). The Godot client ships with `export_presets.cfg` — open it in
+the editor and export the Windows build in one click.
+
 ## Rules of the road
 
 - The simulation engine is deterministic; agents are probabilistic.

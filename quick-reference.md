@@ -836,6 +836,18 @@ git status --short && git add -A && git commit -m "..." && git push
 
 Remote: `jamesdileva/matrix` (public), branch `main`.
 
+## Packaging (S54)
+
+```bash
+backend/.venv/Scripts/python -m pip install pyinstaller          # once
+backend/.venv/Scripts/python scripts/package.py                  # npm build + bundle + smoke
+dist/flood-server/flood-server.exe --port 8011                   # run the app
+# console at http://127.0.0.1:8011/ · API under /api
+```
+
+The Godot client exports via `world-client/export_presets.cfg`
+(Windows Desktop) — open the project in the editor and export.
+
 ## Sprint loop
 
 Every sprint: **plan → scope → implement → verify (tests) → commit + push →

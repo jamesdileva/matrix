@@ -21,3 +21,7 @@ Thumbs.db
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Packaging artifacts
+build/pyinstaller/
+dist/
