@@ -183,6 +183,23 @@ def run_observer_study(
     )
 
 
+def run_the_flood(
+    session_factory,
+    params: dict,
+    name: str | None,
+    experiment_id: int | None = None,
+    profile: str | None = None,
+) -> dict:
+    from app.experiments.final_milestone import run_milestone
+
+    return run_milestone(
+        session_factory=session_factory,
+        seed=str(params.get("seed", "the-flood")),
+        name=name,
+        experiment_id=experiment_id,
+    )
+
+
 SCENARIOS: dict[str, Scenario] = {
     "multi_world": Scenario(
         name="multi_world",
@@ -247,6 +264,23 @@ SCENARIOS: dict[str, Scenario] = {
                   help="per-world action ceiling; leave blank for unlimited"),
         ),
         runner=run_observer_study,
+    ),
+    "the_flood": Scenario(
+        name="the_flood",
+        title="The Flood — Final Milestone",
+        description=(
+            "The roadmap's closing scenario: eight chapters (lineage drift, "
+            "culture, construction, escape, civilization, games, "
+            "participation, fixed-compute research) run by the real "
+            "scenario builders, then an attestation mapping every item of "
+            "the Ultimate Definition of Done to honest evidence — "
+            "demonstrated in this run or cited to the capability that "
+            "proves it."
+        ),
+        params=(
+            Param("seed", "seed", "str", "the-flood"),
+        ),
+        runner=run_the_flood,
     ),
 }
 

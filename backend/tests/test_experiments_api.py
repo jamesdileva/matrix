@@ -48,7 +48,9 @@ class TestScenarios:
     def test_the_catalog_lists_the_studies(self, client):
         body = client.get("/api/scenarios").json()
         names = {scenario["name"] for scenario in body["scenarios"]}
-        assert names == {"multi_world", "lineage_study", "observer_vs_participant"}
+        assert names == {
+        "multi_world", "lineage_study", "observer_vs_participant", "the_flood"
+    }
 
     def test_each_scenario_describes_its_knobs(self, client):
         body = client.get("/api/scenarios").json()

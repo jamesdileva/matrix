@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S51+ — the numbered roadmap is complete; only the Final Milestone remains
-- Completed sprints: S01–S50 (S50 done 2026-11-21)
+- **Next sprint:** none — the numbered roadmap and the Final Milestone are complete; polish and open-ended work from here
+- Completed sprints: S01–S51 (S51 Final Milestone done 2026-11-21)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -3997,6 +3997,83 @@ authentication, cross-machine scheduling.
 
 ### Commits
 - `6ab621b` — S50: distributed laboratory - leases, recovery, fleet controller [pushed]
+- `4232e7f` — worklog: record S50 commit hash [pushed]
+
+## S51 — Final Milestone (2026-11-21)
+
+### Plan
+The roadmap's closing scenario, run for real: one experiment that
+exercises the whole platform and hands back a verdict. **Chapters**
+compose the existing scenarios — lineage (inheritance drift), culture
+(word seeds), construction (house), escape, civilization (settlement),
+games (invented and played), participation (observer vs participant),
+and research (fixed-compute budgets) — each a bounded run of the real
+chapter builder. **Attestation** then maps every item of the Ultimate
+Definition of Done to honest evidence: `demonstrated` when this run's
+chapter shows it, `cited` when a platform capability proves it beyond
+what one bounded run can show (the 10,000-generation stress test, the
+observer dashboard, the replay API). The result exports as JSON and as
+a human-readable milestone report.
+
+### Scope
+In: `app/experiments/final_milestone.py` — eight chapters calling the
+real scenario builders with bounded parameters, per-chapter evidence
+extraction, the DoD attestation with `demonstrated`/`cited`/`failed`
+verdicts, a markdown report renderer, CLI and catalog registration
+(`the_flood` scenario: `GET /scenarios`, enqueue, worker, export all
+working); tests running the whole milestone.
+Out: running all 10,000 generations inside the milestone (the cap is
+quoted from S12's stress test instead), merging chapter worlds into one
+continuous world (chapters are bounded runs of the same engine, per the
+Ultimate Definition's "same engine" reading), model-minded chapters
+(every chapter runs scripted — the model seam is cited), frontend
+milestone UI, packaging.
+
+### Implementation
+- `app/experiments/final_milestone.py` (new):
+  - **Eight chapters**, each a bounded run of a real scenario builder:
+    lineage (10 generations, drift measured: 10 retained, 0 lost,
+    similarity 1.0), culture (word seeds → artifacts), construction
+    (12 blocks, a house), escape (escaped at tick 13), civilization
+    (First Hollow founded — homes, roads, zones), games (The Long
+    Road invented, played to a winner), participation (the participant
+    joined, taught 3 facts, spoke — 8 actions, 10 dimensions changed),
+    research (constrained vs unconstrained budgets compared). Each
+    chapter persists its own experiment row; the milestone references
+    them.
+  - **Attestation** — one verdict per Ultimate Definition of Done
+    item: `demonstrated` (this run's chapter shows it), `failed`
+    (the chapter failed its own check — the mirror, not the brochure),
+    with a `citation` naming the capability that proves the item
+    beyond one bounded run (S12's 10,000-generation stress test, the
+    S13 dashboard, the S37 replay API, the S07 model seam).
+  - **Report** — `render_markdown` renders the chapters, the DoD
+    table, the operator-capability surface (15 capabilities each cited
+    to its real API route or module), and the closing: *a sandbox for
+    asking questions about artificial lineage, culture, cooperation,
+    problem solving, communication, resource constraints, and
+    human-agent interaction.*
+  - `run_milestone` persists into the caller's row (experiment_id
+    passthrough, worker-compatible), CLI, and catalog registration:
+    `the_flood` scenario, runnable via `GET /scenarios`, enqueue +
+    worker, and export like any other study.
+
+### Verification
+- Tests: pytest **817 passed** (812 + 5 milestone tests; the S40
+  catalog set grew to five scenarios). A failing chapter (monkeypatched
+  escape refusal) marks its item `failed` while every other item stays
+  `demonstrated` — the attestation does not inflate.
+- Live, through the full chain: `POST /api/experiments` (the_flood) →
+  202 → worker → completed. The stored attestation: **8 of 8
+  demonstrated** — Lineage, Construction, Escape, Civilization, Games,
+  Observer, Participant, Research — and the markdown report rendered
+  from the export (4,347 chars: chapters with evidence, DoD table,
+  operator surface, closing). Port 8011 cleared after.
+- Roadmap S51 checklist: the Final Milestone scenario runs end to end,
+  attests honestly, stores, exports. ✅
+
+### Commits
+- (this commit) — S51: final milestone - eight chapters, attestation, milestone report
 
 
 
