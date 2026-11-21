@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S50 — Distributed Laboratory
-- Completed sprints: S01–S49 (S49 done 2026-11-21)
+- **Next sprint:** S51+ — the numbered roadmap is complete; only the Final Milestone remains
+- Completed sprints: S01–S50 (S50 done 2026-11-21)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -3907,6 +3907,96 @@ ignores it for now).
 
 ### Commits
 - `c9e4162` — S49: hardware profiles - named environments, recorded runtimes, cross-profile comparison [pushed]
+
+## S50 — Distributed Laboratory (2026-11-21)
+
+### Plan
+Turn the S47/S48 queue-and-workers into an operated fleet. A claim now
+records a **lease** (worker id, attempt, heartbeat); a running worker
+heartbeats its lease, so a worker that dies mid-study is detectably
+orphaned rather than silently stuck in `running` forever. Recovery
+re-queues orphans with an attempt cap — a study abandoned three times
+becomes a failed row whose error says so, instead of looping forever —
+and the **controller** (``app/controller.py``) operates the fleet:
+add/remove worker processes at runtime, recover orphans, and report the
+state of queue and fleet. Consistency is the invariant: through crashes,
+removals and retries, every experiment ends in exactly one terminal
+state, runs into its own row, and never double-claims.
+
+### Scope
+In: leases on claim (worker_id, attempt, heartbeat_at in the row's
+existing JSON configuration — no migration); a heartbeat thread inside
+`run_claimed` plus `touch_lease`/`clear_lease` (a touch never
+resurrects another worker's lease); `recover_orphans(lease_timeout_s,
+max_attempts)` with legacy support for lease-less running rows (aged by
+started_at); `Fleet` in `app/controller.py` (subprocess worker
+management: add/remove/recover/state, env-pointed at the database);
+`--worker-id` and `--heartbeat-interval` on the worker CLI; tests for
+lease/heartbeat/recovery/attempt-cap/consistency and a controller flow
+that removes a live worker and watches the job finish on another one.
+Out: a controller CLI or console UI (the fleet is operated
+programmatically and in verification), network transport between
+controller and workers (same-machine subprocesses over a shared
+database — the roadmap's "only if justified" is honoured), worker
+authentication, cross-machine scheduling.
+
+### Implementation
+- `worker.py` — leases and recovery:
+  - `claim_next(worker_id=)`: a claim records a lease in the row's JSON
+    configuration — worker_id, attempt (previous + 1), heartbeat_at,
+    claimed_at. No migration; no schema change.
+  - `touch_lease`: the holder-only heartbeat (a stranger's touch and a
+    terminal state are refused). One SQLAlchemy pitfall fixed en route:
+    mutating the *shared* nested lease dict in place compared equal to
+    the loaded value and silently emitted no UPDATE — the lease copy is
+    built before mutation.
+  - `run_claimed(worker_id=, heartbeat_interval=)`: a daemon thread
+    freshens the lease for the whole run; the lease is dropped on any
+    terminal state.
+  - `recover_orphans(lease_timeout_s=, max_attempts=)`: running rows
+    with stale heartbeats are re-queued with the attempt count
+    preserved; a run abandoned `max_attempts` times becomes a failed
+    row whose error says exactly that. Lease-less running rows (pre-S50
+    shapes) are aged by `started_at` instead, with SQLite's naive
+    datetimes normalized to UTC.
+  - CLI: `--worker-id`, `--heartbeat-interval`; `run_workers_parallel`
+    gives every loop its own lease identity.
+- `app/controller.py` (new): `queue_state` (counts by status) and
+  `Fleet` — subprocess worker management over the shared database:
+  `add_worker`/`remove_worker`/`worker_ids`/`recover`/`state`/
+  `shutdown`, each worker pointed at the fleet's database with its own
+  lease identity, heartbeat, and hardware profile. Removing a worker
+  kills the process; its lease goes stale and is recovered like any
+  other abandonment.
+
+### Verification
+- Tests: pytest **812 passed** (801 + 11 in `tests/test_distributed.py`).
+- Lease semantics: claim records worker/attempt/heartbeat; the
+  heartbeat freshens only its own lease; a terminal run drops it.
+- Recovery: a stale lease re-queues with the attempt preserved; a run
+  abandoned 3 times becomes a failed row ("abandoned after 3 attempts:
+  the worker holding this run stopped heartbeating"); a fresh lease is
+  left alone; a lease-less running row is recovered by age.
+- Fleet flow, live with real subprocesses: a worker claimed a
+  6000-tick study, was removed mid-run, the controller re-queued the
+  orphan, and a replacement worker finished it — one row, one terminal
+  state, lease cleared, queue counts clean.
+- Roadmap S50 checklist: workers can be added/removed ✅; failed jobs
+  recover ✅ (requeue with attempt cap, then honest retirement);
+  experiment state remains consistent ✅.
+- A real finding from the live run, recorded honestly: heartbeat
+  threads share the GIL with the CPU-bound study in their own process,
+  so long simulations can starve heartbeats past a short lease timeout.
+  Eight pre-existing orphan rows (garbage left by earlier sprints'
+  force-killed servers) were re-run by the fleet and then correctly
+  retired by the attempt cap when their heartbeats starved. The system
+  behaved as designed — retries, then truthful failure — and the
+  default lease timeout was raised to 30 s accordingly. Process-level
+  heartbeats or async heartbeats are the structural fix if studies get
+  much longer; noted for S50's successors.
+
+### Commits
+- (this commit) — S50: distributed laboratory - leases, recovery, fleet controller
 
 
 
