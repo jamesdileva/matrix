@@ -3830,7 +3830,7 @@ asyncio inside studies.
   budgets are respected ✅; results remain attributable ✅.
 
 ### Commits
-- (this commit) — S48: parallel experiments - concurrent worlds, racing workers, binding budgets
+- `7ec4928` — S48: parallel experiments - concurrent worlds, racing workers, binding budgets [pushed]
 
 
 
