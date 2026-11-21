@@ -43,6 +43,12 @@ var _smoke_deadline := 0
 var _last_tick := -1
 var _last_agent_count := 0
 
+# S53: the agent inspector — polls the followed agent's feed.
+var inspector: RichTextLabel
+var _inspect_id := -1
+var _agent_busy := false
+var _agent_timer := 0.0
+
 # Participant mode (S20).
 var _participant_mode := false
 var _participant_joined := false
@@ -123,6 +129,33 @@ func _build_ui() -> void:
 	help.position = Vector2(12, -28)
 	layer.add_child(help)
 
+	# S53: world controls — pause / resume / step.
+	var controls := HBoxContainer.new()
+	controls.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	controls.position = Vector2(-96, 8)
+	layer.add_child(controls)
+	controls.add_child(_control_button("pause", func() -> void: api.pause_world(world_id)))
+	controls.add_child(_control_button("resume", func() -> void: api.resume_world(world_id)))
+	controls.add_child(_control_button("step", func() -> void: api.step_world(world_id)))
+
+	# S53: the agent inspector — the follow target's feed from the API.
+	inspector = RichTextLabel.new()
+	inspector.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	inspector.offset_left = -330
+	inspector.offset_top = 10
+	inspector.offset_right = -10
+	inspector.offset_bottom = 250
+	inspector.add_theme_color_override("default_color", Color(0.55, 1.0, 0.7))
+	inspector.add_theme_font_size_override("normal_font_size", 13)
+	layer.add_child(inspector)
+
+
+func _control_button(text: String, on_press: Callable) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.pressed.connect(on_press)
+	return button
+
 
 func _label(layer: CanvasLayer, pos: Vector2) -> Label:
 	var label := Label.new()
@@ -172,6 +205,22 @@ func _on_api_response(kind: String, data: Dictionary, error: String) -> void:
 			_events_busy = false
 			if world_id != -1 and error == "":
 				_apply_events(data)
+		"agent":
+			_agent_busy = false
+			if error == "" and world_id != -1:
+				_render_agent(data)
+		"pause":
+			if error == "":
+				_set_status("world paused")
+			_state_busy = false
+		"resume":
+			if error == "":
+				_set_status("world resumed")
+			_state_busy = false
+		"step":
+			_state_busy = false
+			if error == "" and world_id != -1:
+				_apply_state(data)
 		"participant_join":
 			if error != "":
 				_set_status("participant join failed: %s" % error)
@@ -312,6 +361,7 @@ func _process(delta: float) -> void:
 		return
 	_state_timer += delta
 	_event_timer += delta
+	_agent_timer += delta
 	if _state_timer >= POLL_INTERVAL and not _state_busy:
 		_state_timer = 0.0
 		_state_busy = true
@@ -320,6 +370,10 @@ func _process(delta: float) -> void:
 		_event_timer = 0.0
 		_events_busy = true
 		api.get_events(world_id, last_event_id)
+	if _inspect_id != -1 and _agent_timer >= 0.6 and not _agent_busy:
+		_agent_timer = 0.0
+		_agent_busy = true
+		api.get_agent(world_id, _inspect_id)
 	if _participant_mode:
 		_move_timer += delta
 		if _move_timer >= MOVE_INTERVAL:
@@ -358,6 +412,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if cam.is_following():
 			cam.release()
+			_inspect_id = -1
+			inspector.text = ""
 			_set_status("released")
 		else:
 			var id: int = world_view.pick_agent(event.position, cam)
@@ -365,6 +421,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				var node = world_view.agent_node(id)
 				if node != null:
 					cam.follow(node)
+					_inspect_id = id
 					_set_status("following agent %d — LMB/Esc to release" % id)
 	elif event is InputEventKey and event.pressed and event.keycode == KEY_P and world_id != -1:
 		if _participant_mode:
@@ -407,6 +464,43 @@ func _participant_smoke_finish(ok: bool) -> void:
 	else:
 		print("PARTICIPANT_SMOKE FAIL: could not join/move/leave as a participant")
 		get_tree().quit(1)
+
+
+func _render_agent(data: Dictionary) -> void:
+	if _inspect_id == -1 or int(data.get("id", -1)) != _inspect_id:
+		return
+	var lines := PackedStringArray()
+	lines.append("[b]AGENT %d[/b] · %s" % [int(data.get("id", 0)), data.get("policy", "?")])
+	lines.append("status: %s · generation %d" % [data.get("status", "?"), data.get("generation", 0)])
+	var position = data.get("position")
+	if position is Dictionary:
+		lines.append("position: %d, %d" % [int(position.get("x", 0)), int(position.get("y", 0))])
+	lines.append("goal: %s" % (data.get("goal") if data.get("goal") != null else "—"))
+	var resources: Dictionary = data.get("resources") or {}
+	if not resources.is_empty():
+		var parts := PackedStringArray()
+		for kind in resources:
+			parts.append("%s %s" % [kind, resources[kind]])
+		lines.append("resources: " + " · ".join(parts))
+	var budget: Dictionary = data.get("budget") or {}
+	var caps := PackedStringArray()
+	for kind in budget:
+		var entry = budget[kind]
+		if entry is Dictionary and entry.get("cap") != null:
+			caps.append("%s: %s left" % [kind, entry.get("remaining")])
+	if caps.size() > 0:
+		lines.append("budget: " + " · ".join(caps))
+	var children: Array = data.get("children") or []
+	if children.size() > 0:
+		lines.append("children: %s" % json_string_ids(children))
+	inspector.text = "\n".join(lines)
+
+
+func json_string_ids(children: Array) -> String:
+	var parts := PackedStringArray()
+	for child in children:
+		parts.append(str(child))
+	return ", ".join(parts)
 
 
 func _smoke_finish(ok: bool) -> void:

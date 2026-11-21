@@ -41,6 +41,22 @@ func get_events(world_id: int, since_id: int) -> void:
 	)
 
 
+func pause_world(world_id: int) -> void:
+	_request(HTTPClient.METHOD_POST, "/api/worlds/%d/pause" % world_id, "pause")
+
+
+func resume_world(world_id: int) -> void:
+	_request(HTTPClient.METHOD_POST, "/api/worlds/%d/resume" % world_id, "resume")
+
+
+func step_world(world_id: int) -> void:
+	_request(HTTPClient.METHOD_POST, "/api/worlds/%d/step" % world_id, "step")
+
+
+func get_agent(world_id: int, agent_id: int) -> void:
+	_request(HTTPClient.METHOD_GET, "/api/worlds/%d/agents/%d" % [world_id, agent_id], "agent")
+
+
 ## Participant mode (S20): the operator as an entity in the world.
 func join_participant(world_id: int) -> void:
 	_request(HTTPClient.METHOD_POST, "/api/worlds/%d/participant/join" % world_id, "participant_join")
