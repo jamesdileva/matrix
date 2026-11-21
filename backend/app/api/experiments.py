@@ -1,106 +1,69 @@
-"""The Experiment API (S40): create, run, inspect and export studies.
+"""The Experiment API (S40, queue since S47): enqueue, inspect, export.
 
 This is the console's other half. Every study the platform can run —
-S32's lineage study, S39's multi-world laboratory — is one entry in a
-scenario catalog, and every run is an `ExperimentModel` row that now
-keeps its whole result, so inspect and export read the database rather
-than re-running anything.
+S32's lineage study, S39's multi-world laboratory, S46's observer pair —
+is one entry in the scenario catalog (``app/experiments/catalog.py``,
+shared with the worker), and every run is an ``ExperimentModel`` row
+that keeps its whole result.
+
+Since S47 the API does not run studies itself: ``POST /experiments``
+validates the request and *enqueues* it (202) for the worker process
+(``python -m app.worker``) — a long simulation can't block the console.
+Clients that want the old synchronous behaviour pass ``"wait": true``
+and get the study body inline (201), which is what the quick studies
+and the tests use.
 
 Routes:
 - ``GET  /scenarios``            — the catalog (each study and its knobs).
 - ``GET  /experiments``          — runs, newest first.
 - ``GET  /experiments/{id}``     — one run, with its stored result.
-- ``POST /experiments``          — run a scenario; returns the study.
+- ``POST /experiments``          — enqueue (202) or run inline (``wait``: 201).
 - ``GET  /experiments/{id}/export`` — the study as a downloadable JSON.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from app.experiments.catalog import SCENARIOS, Scenario, get_scenario, scenarios_payload
 from app.persistence.models import ExperimentModel
+from app.worker import enqueue as enqueue_experiment
 
 router = APIRouter(tags=["experiments"])
 
 
-# ----------------------------------------------------------------------
-# The scenario catalog
-# ----------------------------------------------------------------------
+class RunExperimentRequest(BaseModel):
+    scenario: str
+    name: str | None = None
+    params: dict = Field(default_factory=dict)
+    wait: bool = False
 
 
-@dataclass(frozen=True)
-class Param:
-    """One knob a scenario exposes — enough for the console to draw a form."""
-
-    name: str
-    label: str
-    type: str = "str"  # "int" | "str" | "bool" | "choice"
-    default: object = None
-    choices: list | None = None
-    minimum: int | None = None
-    maximum: int | None = None
-    help: str = ""
-
-    def to_dict(self) -> dict:
-        data = {
-            "name": self.name,
-            "label": self.label,
-            "type": self.type,
-            "default": self.default,
-            "help": self.help,
-        }
-        if self.choices is not None:
-            data["choices"] = list(self.choices)
-        if self.minimum is not None:
-            data["min"] = self.minimum
-        if self.maximum is not None:
-            data["max"] = self.maximum
-        return data
+def _session_factory(request: Request):
+    factory = getattr(request.app.state, "session_factory", None)
+    if factory is None:
+        # Fall back to the running registry's storage so the API works
+        # even in a host built without the explicit attribute.
+        factory = getattr(request.app.state.worlds, "_session_factory", None)
+    if factory is None:
+        raise HTTPException(status_code=503, detail="no session factory configured")
+    return factory
 
 
-@dataclass(frozen=True)
-class Scenario:
-    """A runnable study: a title, its knobs, and how to run it."""
-
-    name: str
-    title: str
-    description: str
-    params: tuple[Param, ...] = ()
-    runner: object = field(default=None, repr=False)
-
-    def to_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "title": self.title,
-            "description": self.description,
-            "params": [param.to_dict() for param in self.params],
-        }
-
-
-def _template_choices() -> list[str]:
-    from app.experiments.multi_world import TEMPLATES
-
-    return sorted(TEMPLATES)
-
-
-def _optional_int(value) -> int | None:
-    if value is None or value == "":
-        return None
-    return int(value)
-
-
-def _optional_list(value) -> list | None:
-    if value is None:
-        return None
-    if isinstance(value, list):
-        return value
-    return [item for item in str(value).split(",") if item]
+def _scenario(name: str) -> Scenario:
+    try:
+        return get_scenario(name)
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"unknown scenario {name!r}; expected one of {sorted(SCENARIOS)}",
+        ) from None
 
 
 def _name_override(session_factory, study: dict, name: str | None) -> dict:
@@ -116,166 +79,9 @@ def _name_override(session_factory, study: dict, name: str | None) -> dict:
     return study
 
 
-# --- the runners (thin adapters over the study modules) ---------------
-
-
-def _run_multi_world(session_factory, params: dict, name: str | None) -> dict:
-    from app.experiments.multi_world import run_study
-
-    study = run_study(
-        session_factory=session_factory,
-        worlds=int(params.get("worlds", 10)),
-        template=str(params.get("template", "void")),
-        seed=str(params.get("seed", "lab")),
-        ticks=_optional_int(params.get("ticks")),
-        vary=str(params.get("vary", "seed")),
-        templates=_optional_list(params.get("templates")),
-        name=name,
-    )
-    return study
-
-
-def _run_lineage_study(session_factory, params: dict, name: str | None) -> dict:
-    from app.experiments.lineage_study import run_study
-
-    study = run_study(
-        session_factory=session_factory,
-        runs=int(params.get("runs", 3)),
-        mode=str(params.get("mode", "full")),
-        generations=int(params.get("generations", 12)),
-        seed=str(params.get("seed", "study")),
-        vary=str(params.get("vary", "seed")),
-        models=_optional_list(params.get("models")),
-    )
-    return _name_override(session_factory, study, name)
-
-
-def _run_observer_study(session_factory, params: dict, name: str | None) -> dict:
-    from app.experiments.observer import ParticipantPlan, run_study
-
-    plan_data = params.get("participant_plan")
-    plan = ParticipantPlan.from_dict(plan_data) if isinstance(plan_data, dict) else None
-    return run_study(
-        session_factory=session_factory,
-        template=str(params.get("template", "void")),
-        seed=str(params.get("seed", "observer")),
-        ticks=_optional_int(params.get("ticks")),
-        participant_plan=plan,
-        name=name,
-    )
-
-
-_SCENARIOS: dict[str, Scenario] = {
-    "multi_world": Scenario(
-        name="multi_world",
-        title="Multi-world laboratory",
-        description=(
-            "Run the same template in N independent worlds (vary the seed) "
-            "or walk the world's recipe under one seed (vary the template), "
-            "and compare every measure across the worlds."
-        ),
-        params=(
-            Param("worlds", "worlds", "int", 10, minimum=1, maximum=100),
-            Param("template", "template", "choice", "void", choices=["void"]),
-            Param("vary", "vary", "choice", "seed", choices=["seed", "template"]),
-            Param("seed", "seed", "str", "lab"),
-            Param("ticks", "ticks", "int", None, minimum=1, maximum=10000,
-                  help="leave blank for the template's own span"),
-            Param("templates", "templates", "str", None,
-                  help="comma-separated templates, one per world, when vary=template"),
-        ),
-        runner=_run_multi_world,
-    ),
-    "lineage_study": Scenario(
-        name="lineage_study",
-        title="Lineage study",
-        description=(
-            "Run N lineages from the same founder's facts — varying the seed "
-            "or the mind — and compare convergence, divergence, information "
-            "loss, strategies and vocabulary."
-        ),
-        params=(
-            Param("runs", "runs", "int", 3, minimum=1, maximum=50),
-            Param(
-                "mode", "mind", "choice", "full",
-                choices=["full", "lossy", "altering", "negating", "new", "model"],
-            ),
-            Param("vary", "vary", "choice", "seed", choices=["seed", "model"]),
-            Param("generations", "generations", "int", 12, minimum=1, maximum=100),
-            Param("seed", "seed", "str", "study"),
-            Param("models", "models", "str", None,
-                  help="comma-separated minds, one per run, when vary=model"),
-        ),
-        runner=_run_lineage_study,
-    ),
-    "observer_vs_participant": Scenario(
-        name="observer_vs_participant",
-        title="Observer vs participant",
-        description=(
-            "Run two worlds from one seed — one left alone, one joined by a "
-            "participant who joins a population, teaches an agent, assigns a "
-            "task, places objects and speaks — then compare development, "
-            "culture, behaviour, technology and communication, measure by "
-            "measure. Same seed, same template, one difference."
-        ),
-        params=(
-            Param("template", "template", "choice", "void", choices=["void"]),
-            Param("seed", "seed", "str", "observer"),
-            Param("ticks", "ticks", "int", None, minimum=1, maximum=10000,
-                  help="leave blank for the template's own span"),
-        ),
-        runner=_run_observer_study,
-    ),
-}
-
-
-def _scenario(name: str) -> Scenario:
-    if name not in _SCENARIOS:
-        raise HTTPException(
-            status_code=404,
-            detail=f"unknown scenario {name!r}; expected one of {sorted(_SCENARIOS)}",
-        )
-    return _SCENARIOS[name]
-
-
-def scenarios_payload() -> list[dict]:
-    """The catalog as data, with live choice lists (templates) resolved."""
-    payload = []
-    for scenario in _SCENARIOS.values():
-        entry = scenario.to_dict()
-        entry["params"] = [
-            _with_live_choices(param) for param in entry["params"]
-        ]
-        payload.append(entry)
-    return payload
-
-
-def _with_live_choices(param: dict) -> dict:
-    if param["name"] in ("template", "templates") and param["type"] == "choice":
-        param = {**param, "choices": _template_choices()}
-    return param
-
-
 # ----------------------------------------------------------------------
 # Routes
 # ----------------------------------------------------------------------
-
-
-class RunExperimentRequest(BaseModel):
-    scenario: str
-    name: str | None = None
-    params: dict = Field(default_factory=dict)
-
-
-def _session_factory(request: Request):
-    factory = getattr(request.app.state, "session_factory", None)
-    if factory is None:
-        # Fall back to the running registry's storage so the API works
-        # even in a host built without the explicit attribute.
-        factory = getattr(request.app.state.worlds, "_session_factory", None)
-    if factory is None:
-        raise HTTPException(status_code=503, detail="no session factory configured")
-    return factory
 
 
 def _experiment_summary(row: ExperimentModel) -> dict:
@@ -324,8 +130,8 @@ def get_experiment(experiment_id: int, request: Request) -> dict:
         }
 
 
-@router.post("/experiments", status_code=201)
-def run_experiment(payload: RunExperimentRequest, request: Request) -> dict:
+@router.post("/experiments")
+def run_experiment(payload: RunExperimentRequest, request: Request, response: Response) -> dict:
     scenario = _scenario(payload.scenario)
     allowed = {param.name for param in scenario.params}
     unknown = sorted(set(payload.params) - allowed)
@@ -335,10 +141,21 @@ def run_experiment(payload: RunExperimentRequest, request: Request) -> dict:
             detail=f"unknown parameter(s) for {scenario.name}: {unknown}; expected {sorted(allowed)}",
         )
     factory = _session_factory(request)
+
+    if not payload.wait:
+        # The default since S47: hand the study to the worker and answer
+        # immediately — the API stays responsive during long simulations.
+        experiment_id = enqueue_experiment(factory, scenario.name, payload.params, payload.name)
+        with factory() as session:
+            row = session.get(ExperimentModel, experiment_id)
+        response.status_code = 202
+        return {"queued": True, "experiment": _experiment_summary(row)}
+
     try:
         study = scenario.runner(factory, payload.params, payload.name)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    response.status_code = 201
     return {"scenario": scenario.name, "study": study}
 
 

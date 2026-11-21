@@ -252,7 +252,7 @@ def test_the_catalog_lists_the_new_scenario(client):
 def test_the_scenario_runs_through_the_api(client):
     created = client.post(
         "/api/experiments",
-        json={"scenario": "observer_vs_participant", "params": {"ticks": 6}},
+        json={"scenario": "observer_vs_participant", "params": {"ticks": 6}, "wait": True},
     )
     assert created.status_code == 201
     body = created.json()

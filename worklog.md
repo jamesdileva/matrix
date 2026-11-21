@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S47 — Experiment Worker (simulation leaves the API process)
-- Completed sprints: S01–S46 (S46 done 2026-11-19)
+- **Next sprint:** S48 — Parallel Experiments
+- Completed sprints: S01–S47 (S47 done 2026-11-20)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -3685,6 +3685,79 @@ multiple participants, and new persistence tables/migrations.
 
 ### Commits
 - `beef048` — S46: observer vs participant — paired study, five-dimension comparison, catalog entry [pushed]
+
+## S47 — Experiment Worker (2026-11-20)
+
+### Plan
+Take simulation execution out of the API process. Since S40, `POST
+/experiments` ran studies synchronously inside the request handler — a
+10,000-tick study would hang the console for its whole duration. S47
+makes the API a *producer*: it validates a run and enqueues it (202) into
+the durable experiment queue (the `experiments` table we already have),
+and a new standalone worker process (`python -m app.worker`) claims runs,
+executes them through the scenario catalog, and writes results back.
+The roadmap's checks: the simulation can run independently, and the API
+stays responsive while it does.
+
+### Scope
+In: the scenario catalog extracted to `app/experiments/catalog.py`
+(shared by API and worker, so the worker never imports the API layer);
+`experiment_id` passthrough in the three registered studies (multi_world,
+lineage_study, observer — a queued run fills the API's row instead of
+making its own); `app/worker.py` (atomic claim via conditional UPDATE
+... RETURNING, run-to-completed-or-failed with the error stored as data,
+`--once` drain / `--max-jobs` / forever-poll modes); POST /experiments
+enqueue-by-default (202) with `"wait": true` as the inline opt-out (201);
+tests including a true subprocess run; docs.
+Out: parallel workers and claim metadata (S48), job priority/cancel,
+progress reporting and streaming, worker auto-scaling, migrating the
+unregistered experiment modules (compression, reconstruction — their
+runners aren't catalog scenarios), no schema migration (queued/failed are
+new status *values*, not columns).
+
+### Implementation
+- `app/experiments/catalog.py` (new): `Param`, `Scenario`, the runner
+  adapters (`run_multi_world`, `run_lineage_study`, `run_observer_study`)
+  now accepting `experiment_id=None`, the `SCENARIOS` registry, and
+  `scenarios_payload`. `lineage_study` names itself, so its adapter
+  renames post-hoc (the old `_name_override` behaviour moved here).
+- `app/worker.py` (new): `enqueue` (queued row carrying params in
+  `model_configuration`, placeholder name for the NOT NULL column until
+  the runner names the study), `claim_next` (oldest `queued` → `running`
+  via conditional UPDATE RETURNING — two racing workers cannot both win),
+  `run_claimed` (runner through the catalog; any exception becomes a
+  `failed` row with the error in `result`), `run_worker` (drain-once /
+  poll-forever, outcome tally), CLI main.
+- Registered studies: `run_study(..., experiment_id=None)` in
+  multi_world, lineage_study and observer — a passed id is filled in
+  (running → completed) instead of creating a second row.
+- `api/experiments.py` slimmed to routes over the catalog;
+  `RunExperimentRequest.wait` (default False): False → enqueue + 202 with
+  the queued row's summary; True → the inline 201 study body as before.
+  The API imports `enqueue` from the worker module — one enqueue
+  implementation, no drift.
+- Tests updated: five inline-path POSTs pass `"wait": true`; new
+  `tests/test_worker.py` (10) covers claim/run/failure/drain, the API
+  enqueue round trip, skip-of-unclaimed rows, and a real subprocess run
+  (`python -m app.worker --once` against a temp database via
+  `FLOOD_DATABASE_URL`).
+
+### Verification
+- Tests: pytest **781 passed** (771 + 10 worker tests, minus none).
+- Live on port 8011 (never 8000): health answered in 26 ms idle; a
+  4-world × 1500-tick multi_world study enqueued via curl returned 202 +
+  `queued: true` instantly; with the worker running, health answered in
+  **2.2 ms** and the study showed `completed` — the API never blocked.
+- Independence, proven directly: with the API process *killed*, a study
+  was enqueued straight into the database and the worker ran it to
+  completion (experiment 128: 60 ticks, 11 differing measures) — then
+  the restarted API served both experiments (127: 4 worlds; 128) with
+  their stored results, health back in 22 ms. Port 8011 cleared after.
+- Roadmap S47 checklist: simulation runs independently ✅; API remains
+  responsive ✅.
+
+### Commits
+- (this commit) — S47: experiment worker - queue, standalone worker process, async API
 
 
 

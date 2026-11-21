@@ -653,6 +653,9 @@ curl -s -X POST localhost:8000/api/experiments -H "Content-Type: application/jso
 cd backend && .venv/Scripts/python -m app.experiments.observer --template void --seed observer --ticks 40 --export ../observer-study.json
 # list studies (newest first; optional ?scenario=)
 curl -s localhost:8000/api/experiments
+# by default POST enqueues (202) for the worker process; "wait": true runs inline (201).
+# drain the queue with the worker (its own process; drops --once to poll forever):
+cd backend && .venv/Scripts/python -m app.worker --once
 # inspect one, with its stored result
 curl -s localhost:8000/api/experiments/1
 # export the whole study as a downloadable JSON

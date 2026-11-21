@@ -431,6 +431,7 @@ def run_study(
     participant_plan: ParticipantPlan | None = None,
     export_path: str | None = None,
     name: str | None = None,
+    experiment_id: int | None = None,
 ) -> dict:
     """Run the same world observed, then with a participant, and compare."""
     chosen = resolve_template(template)
@@ -447,18 +448,27 @@ def run_study(
         "participant_plan": plan.to_dict(),
     }
 
-    with session_factory() as session:
-        experiment = ExperimentModel(
-            name=label,
-            scenario=SCENARIO,
-            seed=str(seed),
-            status="running",
-            model_configuration=config,
-            started_at=datetime.now(timezone.utc),
-        )
-        session.add(experiment)
-        session.commit()
-        experiment_id = experiment.id
+    if experiment_id is None:
+        with session_factory() as session:
+            experiment = ExperimentModel(
+                name=label,
+                scenario=SCENARIO,
+                seed=str(seed),
+                status="running",
+                model_configuration=config,
+                started_at=datetime.now(timezone.utc),
+            )
+            session.add(experiment)
+            session.commit()
+            experiment_id = experiment.id
+    else:
+        # Queued by the API; the worker asked this study to fill its row.
+        with session_factory() as session:
+            row = session.get(ExperimentModel, experiment_id)
+            row.status = "running"
+            row.started_at = datetime.now(timezone.utc)
+            row.name = label
+            session.commit()
 
     observer = run_world(chosen, seed, ticks=span)
     participant = run_world(

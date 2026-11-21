@@ -83,6 +83,7 @@ class TestRunAndInspect:
                 "scenario": "multi_world",
                 "name": "console-study",
                 "params": {"worlds": 3, "template": "void", "seed": "api", "ticks": 10},
+                "wait": True,
             },
         )
         assert response.status_code == 201
@@ -118,6 +119,7 @@ class TestRunAndInspect:
                 "scenario": "lineage_study",
                 "name": "lineage-run",
                 "params": {"runs": 2, "generations": 3, "seed": "api"},
+                "wait": True,
             },
         )
         assert response.status_code == 201
@@ -132,11 +134,11 @@ class TestRunAndInspect:
     def test_the_list_can_be_filtered_by_scenario(self, client):
         client.post(
             "/api/experiments",
-            json={"scenario": "multi_world", "params": {"worlds": 2, "ticks": 5}},
+            json={"scenario": "multi_world", "params": {"worlds": 2, "ticks": 5}, "wait": True},
         )
         client.post(
             "/api/experiments",
-            json={"scenario": "lineage_study", "params": {"runs": 1, "generations": 2}},
+            json={"scenario": "lineage_study", "params": {"runs": 1, "generations": 2}, "wait": True},
         )
         only = client.get("/api/experiments?scenario=multi_world").json()["experiments"]
         assert len(only) == 1
@@ -169,6 +171,7 @@ class TestRefusals:
             json={
                 "scenario": "multi_world",
                 "params": {"worlds": 3, "vary": "template"},
+                "wait": True,
             },
         )
         assert response.status_code == 400

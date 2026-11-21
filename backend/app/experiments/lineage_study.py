@@ -242,6 +242,7 @@ def run_study(
     export_path: str | None = None,
     vary: str = "seed",
     models: list[str] | None = None,
+    experiment_id: int | None = None,
 ) -> dict:
     """Run the study: N lineages, one comparison, one export.
 
@@ -263,26 +264,34 @@ def run_study(
     run_modes = list(models) if vary == "model" else [mode] * runs
 
     name = f"study-{seed}"
-    with session_factory() as session:
-        experiment = ExperimentModel(
-            name=name,
-            scenario=STUDY_SCENARIO,
-            seed=str(seed),
-            status="running",
-            model_configuration={
-                "mode": mode,
-                "vary": vary,
-                "models": run_modes if vary == "model" else None,
-                "runs": runs,
-                "generations": generations,
-                "measures": list(MEASURES),
-            },
-            generation_limit=generations,
-            started_at=datetime.now(timezone.utc),
-        )
-        session.add(experiment)
-        session.commit()
-        experiment_id = experiment.id
+    if experiment_id is None:
+        with session_factory() as session:
+            experiment = ExperimentModel(
+                name=name,
+                scenario=STUDY_SCENARIO,
+                seed=str(seed),
+                status="running",
+                model_configuration={
+                    "mode": mode,
+                    "vary": vary,
+                    "models": run_modes if vary == "model" else None,
+                    "runs": runs,
+                    "generations": generations,
+                    "measures": list(MEASURES),
+                },
+                generation_limit=generations,
+                started_at=datetime.now(timezone.utc),
+            )
+            session.add(experiment)
+            session.commit()
+            experiment_id = experiment.id
+    else:
+        # Queued by the API; the worker asked this study to fill its row.
+        with session_factory() as session:
+            row = session.get(ExperimentModel, experiment_id)
+            row.status = "running"
+            row.started_at = datetime.now(timezone.utc)
+            session.commit()
 
     run_records = []
     for index in range(runs):

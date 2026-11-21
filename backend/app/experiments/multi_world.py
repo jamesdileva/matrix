@@ -279,6 +279,7 @@ def run_study(
     templates: list[str] | None = None,
     export_path: str | None = None,
     name: str | None = None,
+    experiment_id: int | None = None,
 ) -> dict:
     """Run the same experiment in ``worlds`` worlds and compare them.
 
@@ -312,18 +313,27 @@ def run_study(
         "ticks": ticks,
         "measures": list(MEASURES),
     }
-    with session_factory() as session:
-        experiment = ExperimentModel(
-            name=label,
-            scenario=STUDY_SCENARIO,
-            seed=str(seed),
-            status="running",
-            model_configuration=config,
-            started_at=datetime.now(timezone.utc),
-        )
-        session.add(experiment)
-        session.commit()
-        experiment_id = experiment.id
+    if experiment_id is None:
+        with session_factory() as session:
+            experiment = ExperimentModel(
+                name=label,
+                scenario=STUDY_SCENARIO,
+                seed=str(seed),
+                status="running",
+                model_configuration=config,
+                started_at=datetime.now(timezone.utc),
+            )
+            session.add(experiment)
+            session.commit()
+            experiment_id = experiment.id
+    else:
+        # Queued by the API; the worker asked this study to fill its row.
+        with session_factory() as session:
+            row = session.get(ExperimentModel, experiment_id)
+            row.status = "running"
+            row.started_at = datetime.now(timezone.utc)
+            row.name = label
+            session.commit()
 
     run_records = []
     for index in range(worlds):
