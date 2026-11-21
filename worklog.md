@@ -4233,7 +4233,7 @@ installers/MSI, code signing, macOS/Linux bundles.
   console ✅; Godot export presets in place ✅.
 
 ### Commits
-- (this commit) — S54: packaging - flood-server bundle, console serving, export presets
+- `b953fc3` — S54: packaging - flood-server bundle, console serving, export presets [pushed]
 
 ## S54 — Packaging (2026-11-21)
 
