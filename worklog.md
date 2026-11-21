@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S48 — Parallel Experiments
-- Completed sprints: S01–S47 (S47 done 2026-11-20)
+- **Next sprint:** S49 — Hardware Profiles
+- Completed sprints: S01–S48 (S48 done 2026-11-20)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -3758,6 +3758,79 @@ new status *values*, not columns).
 
 ### Commits
 - `7dae7f6` — S47: experiment worker - queue, standalone worker process, async API [pushed]
+
+## S48 — Parallel Experiments (2026-11-20)
+
+### Plan
+Make concurrency real, then prove it harmless. Worlds inside a study run
+concurrently (a thread pool over multi_world's per-world loop — each
+world is a self-contained Engine, so isolation is structural and
+determinism is the test); workers claim from the same queue concurrently
+(proving S47's atomic claim under real contention); and resource budgets
+finally bind in studies — a latent S33 gap meant no experiment ever set
+an experiment budget, and `Engine(budget=...)` never reached the world's
+ledgers. Attribution falls out of determinism: a parallel run must be
+byte-identical to the serial run of the same params, and every row must
+carry its own study's result.
+
+### Scope
+In: `Engine.__init__` wiring a provided budget into the world's
+experiment ledger; a `max_actions` knob on multi_world and observer
+(fresh per-world `Budget(limits={"actions": cap})` — never shared between
+threads); multi_world's worlds executed on a thread pool with order
+preserved by index; `--workers N` on the worker CLI (concurrent claim
+loops, shared tally); tests for racing claimants, parallel-vs-serial
+equality, attribution, and budget caps; subprocess proof of N workers
+partitioning one queue.
+Out: process-level study parallelism inside one experiment (threads are
+the concurrency; processes are the worker scale-out path), budgets on
+lineage_study (its carrier agents never act, so an action cap is
+meaningless there — its compute_budget config already exists), job
+priority/cancellation, progress streaming, per-worker claim metadata,
+asyncio inside studies.
+
+### Implementation
+- `engine.py`: `Engine(budget=...)` now wires the ceiling into the
+  world's experiment ledger (`world._experiment_budget`), fixing a
+  latent S33 gap — no caller had ever passed a budget to an experiment
+  Engine, and a passed one would never have reached action spending.
+  None leaves a restored world's existing budget untouched.
+- `multi_world.py`: worlds run on a `ThreadPoolExecutor` (order
+  preserved by index; each world a self-contained Engine, so threads
+  share nothing); new `max_actions` knob builds a fresh
+  `Budget(limits={"actions": cap})` per world — mutable ledgers are
+  never shared between threads — and the run reports `actions_spent`
+  so a cap's effect is visible in the result.
+- `observer.py`: same `max_actions` knob, one fresh budget per side.
+- `catalog.py`: `max_actions` Param + adapter passthrough on
+  multi_world and observer_vs_participant.
+- `worker.py`: `run_workers_parallel` (N concurrent claim loops in one
+  process, shared tally) behind `--workers N` on the CLI; the atomic
+  claim from S47 partitions the queue under contention.
+- Tests: `tests/test_parallel.py` (7) — racing claimants (4 loops over
+  8 jobs), three worker *processes* racing one database with disjoint
+  claims parsed from their stdout, parallel-vs-serial result equality
+  (canonicalized over the legitimately-varying row id/name), per-row
+  attribution, thread-pool determinism, ledger-precise budget caps and
+  independent budgets for raced studies, and the `--workers 3` CLI.
+
+### Verification
+- Tests: pytest **788 passed** (781 + 7).
+- Live on 8011: three budgeted multi_world studies enqueued (202, 3 ms
+  health); two worker processes × 2 claim loops raced the queue —
+  worker 1 completed experiments 130 + 131, worker 2 completed 129:
+  disjoint, all completed, none double-claimed. Health answered in
+  2–3 ms throughout.
+- Budgets, from the live results: every world's ledger stopped at
+  **exactly 200 spent / 200 executed** with ~2200 clean refusals after
+  (`action_budget_exceeded`), across three concurrent studies — each
+  budget its own, none borrowed.
+- Attribution: each row's result carried its own name, seed and runs.
+- Roadmap S48 checklist: experiments remain isolated ✅; resource
+  budgets are respected ✅; results remain attributable ✅.
+
+### Commits
+- (this commit) — S48: parallel experiments - concurrent worlds, racing workers, binding budgets
 
 
 

@@ -22,6 +22,7 @@ from typing import Iterable
 from app.host import PARTICIPANT_ENTITY_ID
 from app.persistence.models import ExperimentModel
 from app.simulation.agent import Agent
+from app.simulation.budget import Budget
 from app.simulation.engine import Engine
 from app.simulation.events import EventTypes
 from app.simulation.interventions import world_metrics
@@ -350,6 +351,7 @@ def run_world(
     ticks: int | None = None,
     participant: bool = False,
     plan: ParticipantPlan | None = None,
+    max_actions: int | None = None,
 ) -> dict:
     """Run one side of the pair and report its measures."""
     if ticks is not None and ticks < 0:
@@ -358,7 +360,10 @@ def run_world(
     chosen_plan = (plan or ParticipantPlan()) if participant else None
 
     world = World.generate(str(seed), template.width, template.height)
-    engine = Engine(world, population_id=1)
+    budget = (
+        Budget(limits={"actions": max_actions}) if max_actions is not None else None
+    )
+    engine = Engine(world, population_id=1, budget=budget)
     policies = [_policy(name) for name in (template.policies or ("wander",))]
     spots = _spawn_spots(world, template.agents)
     for index, spot in enumerate(spots):
@@ -432,6 +437,7 @@ def run_study(
     export_path: str | None = None,
     name: str | None = None,
     experiment_id: int | None = None,
+    max_actions: int | None = None,
 ) -> dict:
     """Run the same world observed, then with a participant, and compare."""
     chosen = resolve_template(template)
@@ -443,6 +449,7 @@ def run_study(
     config = {
         "template": template,
         "ticks": ticks,
+        "max_actions": max_actions,
         "measures": list(MEASURES),
         "dimensions": {key: list(value) for key, value in DIMENSIONS.items()},
         "participant_plan": plan.to_dict(),
@@ -470,9 +477,9 @@ def run_study(
             row.name = label
             session.commit()
 
-    observer = run_world(chosen, seed, ticks=span)
+    observer = run_world(chosen, seed, ticks=span, max_actions=max_actions)
     participant = run_world(
-        chosen, seed, ticks=span, participant=True, plan=plan
+        chosen, seed, ticks=span, participant=True, plan=plan, max_actions=max_actions
     )
     comparison = compare_runs(observer, participant)
     study = {
@@ -482,6 +489,7 @@ def run_study(
         "seed": str(seed),
         "template": template,
         "ticks": span,
+        "max_actions": max_actions,
         "measures": list(MEASURES),
         "dimensions": {key: list(value) for key, value in DIMENSIONS.items()},
         "participant_plan": plan.to_dict(),

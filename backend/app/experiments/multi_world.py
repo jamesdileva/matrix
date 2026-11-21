@@ -27,12 +27,14 @@ from __future__ import annotations
 import argparse
 import json
 import statistics as stats
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
 from app.persistence.models import ExperimentModel
 from app.simulation.agent import Agent
+from app.simulation.budget import Budget
 from app.simulation.engine import Engine
 from app.simulation.events import EventTypes
 from app.simulation.policies import ForagerPolicy, GathererPolicy, WanderPolicy
@@ -173,10 +175,16 @@ def run_world(
     seed: str,
     *,
     ticks: int | None = None,
+    max_actions: int | None = None,
 ) -> dict:
     """Run the template in one world and report what happened there."""
     world = World.generate(str(seed), template.width, template.height)
-    engine = Engine(world, population_id=1)
+    budget = (
+        Budget(limits={"actions": max_actions}) if max_actions is not None else None
+    )
+    # One budget per world, built here: ledgers are mutable state, so a
+    # study running worlds concurrently must never share one.
+    engine = Engine(world, population_id=1, budget=budget)
     policies = [_policy(name) for name in (template.policies or ("wander",))]
     for index, spot in enumerate(_spawn_spots(world, template.agents)):
         engine.spawn_agent(
@@ -192,7 +200,16 @@ def run_world(
     for _ in range(span):
         engine.step()
 
-    return {"template": template.name, "seed": str(seed), "ticks": span, **_events(world)}
+    return {
+        "template": template.name,
+        "seed": str(seed),
+        "ticks": span,
+        "max_actions": max_actions,
+        "actions_spent": world.experiment_budget.spent.get("actions", 0)
+        if max_actions is not None
+        else None,
+        **_events(world),
+    }
 
 
 def _events(world: World) -> dict:
@@ -280,6 +297,7 @@ def run_study(
     export_path: str | None = None,
     name: str | None = None,
     experiment_id: int | None = None,
+    max_actions: int | None = None,
 ) -> dict:
     """Run the same experiment in ``worlds`` worlds and compare them.
 
@@ -335,14 +353,19 @@ def run_study(
             row.name = label
             session.commit()
 
-    run_records = []
-    for index in range(worlds):
+    # S48: the worlds run concurrently. Each is a self-contained Engine
+    # with its own ledger, so threads share nothing; results are keyed by
+    # index, so the study reads exactly as the serial one did.
+    def _one_world(index: int) -> dict:
         chosen = selected[index]
         world_seed = str(seed) if vary == "template" else f"{seed}-{index}"
-        report = run_world(chosen, world_seed, ticks=ticks)
+        report = run_world(chosen, world_seed, ticks=ticks, max_actions=max_actions)
         report["index"] = index
         report["experiment_id"] = experiment_id
-        run_records.append(report)
+        return report
+
+    with ThreadPoolExecutor(max_workers=min(worlds, 8)) as pool:
+        run_records = list(pool.map(_one_world, range(worlds)))
 
     comparison = cross_world_analytics(run_records)
     study = {
@@ -354,6 +377,7 @@ def run_study(
         "template": template,
         "templates": templates if vary == "template" else None,
         "ticks": ticks,
+        "max_actions": max_actions,
         "runs": run_records,
         "comparison": comparison,
         "measures": list(MEASURES),

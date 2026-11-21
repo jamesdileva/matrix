@@ -144,6 +144,41 @@ def run_worker(
             return tally
 
 
+def run_workers_parallel(
+    session_factory,
+    *,
+    workers: int,
+    once: bool = False,
+    poll_interval: float = 1.0,
+    max_jobs: int | None = None,
+) -> dict:
+    """Run several claim loops concurrently in this process (S48).
+
+    Every loop claims through the same atomic conditional UPDATE, so the
+    queue is partitioned — no experiment is claimed twice. Threads give
+    the concurrency; separate worker *processes* give the CPU scale-out.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    combined = {"completed": 0, "failed": 0}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        tallies = list(
+            pool.map(
+                lambda _: run_worker(
+                    session_factory,
+                    once=once,
+                    poll_interval=poll_interval,
+                    max_jobs=max_jobs,
+                ),
+                range(workers),
+            )
+        )
+    for tally in tallies:
+        for kind, count in tally.items():
+            combined[kind] = combined.get(kind, 0) + count
+    return combined
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="python -m app.worker",
@@ -152,17 +187,33 @@ def main() -> None:
     parser.add_argument("--once", action="store_true", help="drain the queue and exit")
     parser.add_argument("--poll-interval", type=float, default=1.0)
     parser.add_argument("--max-jobs", type=int, default=None)
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="concurrent claim loops in this process (S48); scale out further "
+        "by starting more worker processes",
+    )
     args = parser.parse_args()
 
     from app.persistence.database import SessionLocal
 
     print("[worker] polling for queued experiments", flush=True)
-    tally = run_worker(
-        SessionLocal,
-        once=args.once,
-        poll_interval=args.poll_interval,
-        max_jobs=args.max_jobs,
-    )
+    if args.workers > 1:
+        tally = run_workers_parallel(
+            SessionLocal,
+            workers=args.workers,
+            once=args.once,
+            poll_interval=args.poll_interval,
+            max_jobs=args.max_jobs,
+        )
+    else:
+        tally = run_worker(
+            SessionLocal,
+            once=args.once,
+            poll_interval=args.poll_interval,
+            max_jobs=args.max_jobs,
+        )
     print(f"[worker] done: {tally}", flush=True)
 
 

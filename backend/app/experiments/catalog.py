@@ -110,6 +110,7 @@ def run_multi_world(
         templates=optional_list(params.get("templates")),
         name=name,
         experiment_id=experiment_id,
+        max_actions=optional_int(params.get("max_actions")),
     )
 
 
@@ -162,6 +163,7 @@ def run_observer_study(
         participant_plan=plan,
         name=name,
         experiment_id=experiment_id,
+        max_actions=optional_int(params.get("max_actions")),
     )
 
 
@@ -183,6 +185,8 @@ SCENARIOS: dict[str, Scenario] = {
                   help="leave blank for the template's own span"),
             Param("templates", "templates", "str", None,
                   help="comma-separated templates, one per world, when vary=template"),
+            Param("max_actions", "max_actions", "int", None, minimum=1, maximum=1000000,
+                  help="per-world action ceiling; leave blank for unlimited"),
         ),
         runner=run_multi_world,
     ),
@@ -223,6 +227,8 @@ SCENARIOS: dict[str, Scenario] = {
             Param("seed", "seed", "str", "observer"),
             Param("ticks", "ticks", "int", None, minimum=1, maximum=10000,
                   help="leave blank for the template's own span"),
+            Param("max_actions", "max_actions", "int", None, minimum=1, maximum=1000000,
+                  help="per-world action ceiling; leave blank for unlimited"),
         ),
         runner=run_observer_study,
     ),

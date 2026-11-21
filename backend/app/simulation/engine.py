@@ -50,6 +50,11 @@ class Engine:
         # agent in the world. The per-agent ledgers live on the
         # entities (the world's); this one is the run's ceiling.
         self.budget = budget
+        # S48: a provided ceiling must reach the world's ledgers, or
+        # action spending would never see it. None leaves whatever the
+        # world already carries (a restored budget, for instance).
+        if budget is not None:
+            world._experiment_budget = budget
         self._agents: dict[int, Agent] = {}
         # Genetics (S41): births mutate the genome through this RNG. It is
         # seeded from the world, so a world's genetic history is a
