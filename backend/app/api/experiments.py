@@ -33,6 +33,7 @@ from sqlalchemy import select
 
 from app.experiments.catalog import SCENARIOS, Scenario, get_scenario, scenarios_payload
 from app.persistence.models import ExperimentModel
+from app.profiles import compare_across_profiles, get_profile
 from app.worker import enqueue as enqueue_experiment
 
 router = APIRouter(tags=["experiments"])
@@ -43,6 +44,7 @@ class RunExperimentRequest(BaseModel):
     name: str | None = None
     params: dict = Field(default_factory=dict)
     wait: bool = False
+    profile: str | None = None  # S49: which hardware should execute this run
 
 
 def _session_factory(request: Request):
@@ -140,23 +142,55 @@ def run_experiment(payload: RunExperimentRequest, request: Request, response: Re
             status_code=400,
             detail=f"unknown parameter(s) for {scenario.name}: {unknown}; expected {sorted(allowed)}",
         )
+    try:
+        hardware = get_profile(payload.profile)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     factory = _session_factory(request)
 
     if not payload.wait:
         # The default since S47: hand the study to the worker and answer
         # immediately — the API stays responsive during long simulations.
-        experiment_id = enqueue_experiment(factory, scenario.name, payload.params, payload.name)
+        experiment_id = enqueue_experiment(
+            factory, scenario.name, payload.params, payload.name, profile=hardware.name
+        )
         with factory() as session:
             row = session.get(ExperimentModel, experiment_id)
         response.status_code = 202
         return {"queued": True, "experiment": _experiment_summary(row)}
 
     try:
-        study = scenario.runner(factory, payload.params, payload.name)
+        study = scenario.runner(
+            factory, payload.params, payload.name, profile=hardware.name
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     response.status_code = 201
     return {"scenario": scenario.name, "study": study}
+
+
+@router.get("/experiments/{experiment_id}/compare/{other_id}")
+def compare_experiments(experiment_id: int, other_id: int, request: Request) -> dict:
+    """S49: two runs of the same configuration under different hardware
+    profiles — outcome metrics must match, runtimes are the story."""
+    factory = _session_factory(request)
+    with factory() as session:
+        first = session.get(ExperimentModel, experiment_id)
+        second = session.get(ExperimentModel, other_id)
+        for row in (first, second):
+            if row is None:
+                raise HTTPException(status_code=404, detail=f"no experiment {row and row.id or 'requested'}")
+        missing = [row.id for row in (first, second) if row.result is None]
+        if missing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"experiments without results: {missing}",
+            )
+        comparison = compare_across_profiles(first.result, second.result)
+        comparison["experiments"] = [
+            _experiment_summary(first), _experiment_summary(second)
+        ]
+    return comparison
 
 
 @router.get("/experiments/{experiment_id}/export")

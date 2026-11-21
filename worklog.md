@@ -72,8 +72,8 @@ domain model can.
 
 ## Status
 
-- **Next sprint:** S49 — Hardware Profiles
-- Completed sprints: S01–S48 (S48 done 2026-11-20)
+- **Next sprint:** S50 — Distributed Laboratory
+- Completed sprints: S01–S49 (S49 done 2026-11-21)
 - Full roadmap: `sprint-roadmap.md`
 
 ## Sprint Log
@@ -3831,6 +3831,82 @@ asyncio inside studies.
 
 ### Commits
 - `7ec4928` — S48: parallel experiments - concurrent worlds, racing workers, binding budgets [pushed]
+
+## S49 — Hardware Profiles (2026-11-21)
+
+### Plan
+Name the execution environments and make them comparable. A hardware
+profile is a declarative execution context — how many claim loops, how
+many worlds may run at once — never a change to simulation semantics.
+The contract this sprint must prove: the *same experiment configuration*
+run under different profiles produces *identical outcome metrics*
+(determinism means hardware cannot alter a history), while each result
+records its *runtime* (profile, concurrency, wall duration, achieved
+ticks/second) so performance is comparable across profiles. Profiles:
+Tiny (one loop, small lots), Desktop (the default), GPU (where model
+minds live), Cloud (generous concurrency).
+
+### Scope
+In: `app/profiles.py` (Profile, the four named profiles, `get_profile`,
+`compare_across_profiles` — outcome fingerprint equality plus the two
+runtimes); profile threading through the catalog adapters and the
+multi_world/observer studies (thread-pool sizing, runtime recording:
+duration, workers, ticks, tps); worker `--profile` (default claim loops,
+per-row override stored at enqueue); API `profile` field on
+`POST /experiments` (validated, stored, passed to inline runs) and a
+`GET /experiments/{a}/compare/{b}` view; tests; docs.
+Out: real hardware detection (a profile cannot make a laptop a GPU),
+tick-rate throttling, per-profile model-provider selection, profile
+inheritance or custom user profiles, running the console per profile,
+lineage_study runtime (its adapter accepts a profile but the study
+ignores it for now).
+
+### Implementation
+- `app/profiles.py` (new): `Profile` (workers, max_parallel_worlds,
+  description), the four named profiles (tiny 1/2, desktop 2/4, gpu 2/4,
+  cloud 8/8), `get_profile` (Desktop default, unknown names raise), and
+  `compare_across_profiles` — an outcome fingerprint equality verdict
+  (fingerprints exclude row identity and runtime) plus the two runtimes.
+- Studies: `run_study(..., profile=None)` on multi_world and observer.
+  The profile sizes concurrency (multi_world's world pool =
+  `min(worlds, profile.max_parallel_worlds)`; observer runs its pair
+  concurrently, `min(2, ...)` instead of serially) and each result
+  records a `runtime`: profile, workers, duration_s, ticks_total, tps.
+  Outcome metrics are untouched by the profile — that's the contract.
+- `catalog.py`: adapters accept a trailing `profile` kwarg (uniform
+  worker surface; lineage_study's accepts and ignores it for now).
+- `worker.py`: `--profile` CLI flag (default claim loops come from the
+  profile unless `--workers` is explicit); a run enqueued with an
+  explicit profile overrides the worker's default; `enqueue` stores the
+  requested profile in the row's configuration.
+- `api/experiments.py`: `profile` field on `POST /experiments`
+  (validated — unknown names are a 400 before anything is enqueued),
+  passed to inline runs, and `GET /experiments/{a}/compare/{b}` — the
+  cross-profile verdict with both experiment summaries, 404/409 when a
+  run or its result is missing.
+- Tests updated: `test_parallel.py`'s canonical form now excludes
+  `runtime` too — duration and throughput are *supposed* to vary.
+
+### Verification
+- Tests: pytest **801 passed** (788 + 13 in `tests/test_profiles.py`).
+- Cross-profile equality: the identical multi_world configuration under
+  tiny and cloud → `compare_across_profiles` verdict
+  `outcomes_identical: true`; pool sizing observed (tiny: 2 workers for
+  3 worlds; cloud: 3), runtimes recorded with duration/ticks/tps.
+- Live on 8011: the twin study enqueued twice with
+  `"profile": "tiny"` and `"profile": "cloud"`, run by a default-desktop
+  worker — the requested profiles won. The compare endpoint's verdict:
+  `outcomes_identical: true`, profiles [tiny, cloud], tiny = 0.617 s at
+  2432.1 tps (2 workers), cloud = 0.640 s at 2344.9 tps (3 workers),
+  1500 ticks each. Port 8011 cleared after.
+- Refusals: unknown profile → 400 before enqueue; compare on a
+  resultless run → 409; unknown ids → 404.
+- Roadmap S49 checklist: same experiment configuration ✅; different
+  compute environment ✅; comparable metrics ✅ (outcomes identical,
+  runtimes comparable).
+
+### Commits
+- (this commit) — S49: hardware profiles - named environments, recorded runtimes, cross-profile comparison
 
 
 

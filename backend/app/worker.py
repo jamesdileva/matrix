@@ -27,9 +27,16 @@ from sqlalchemy import select, update
 
 from app.experiments.catalog import SCENARIOS
 from app.persistence.models import ExperimentModel
+from app.profiles import get_profile
 
 
-def enqueue(session_factory, scenario: str, params: dict, name: str | None) -> int:
+def enqueue(
+    session_factory,
+    scenario: str,
+    params: dict,
+    name: str | None,
+    profile: str | None = None,
+) -> int:
     """Create a queued experiment row. The API uses this too."""
     placeholder = f"{scenario}-{params.get('seed', 'queued')}"
     with session_factory() as session:
@@ -43,6 +50,7 @@ def enqueue(session_factory, scenario: str, params: dict, name: str | None) -> i
             model_configuration={
                 "params": params,
                 "name": name,
+                "profile": profile,
                 "queued_at": datetime.now(timezone.utc).isoformat(),
             },
         )
@@ -79,10 +87,14 @@ def claim_next(session_factory) -> int | None:
     return claimed[0] if claimed else None
 
 
-def run_claimed(session_factory, experiment_id: int) -> str:
+def run_claimed(
+    session_factory, experiment_id: int, profile: str | None = None
+) -> str:
     """Run one claimed experiment to completion or failure.
 
-    Returns the outcome status ('completed' | 'failed').
+    ``profile`` is the worker's default; a run enqueued with an explicit
+    profile overrides it. Returns the outcome status
+    ('completed' | 'failed').
     """
     with session_factory() as session:
         row = session.get(ExperimentModel, experiment_id)
@@ -92,6 +104,7 @@ def run_claimed(session_factory, experiment_id: int) -> str:
         configuration = dict(row.model_configuration or {})
     params = configuration.get("params") or {}
     name = configuration.get("name")
+    requested = configuration.get("profile") or profile
 
     scenario = SCENARIOS.get(scenario_name)
     if scenario is None:
@@ -99,7 +112,9 @@ def run_claimed(session_factory, experiment_id: int) -> str:
         return "failed"
 
     try:
-        scenario.runner(session_factory, params, name, experiment_id=experiment_id)
+        scenario.runner(
+            session_factory, params, name, experiment_id=experiment_id, profile=requested
+        )
     except Exception as exc:  # a failing study is data, not a crash
         _mark_failed(session_factory, experiment_id, f"{type(exc).__name__}: {exc}")
         return "failed"
@@ -123,11 +138,17 @@ def run_worker(
     once: bool = False,
     poll_interval: float = 1.0,
     max_jobs: int | None = None,
+    profile: str | None = None,
 ) -> dict:
-    """Claim-and-run until the queue is drained (``once``) or forever.
+    """One claim loop: claim-and-run until the queue is drained
+    (``once``) or forever.
 
     Returns the outcome tally so tests and callers can assert on it.
+    ``profile`` names the hardware this loop executes for; it defaults
+    each run's profile, and a run enqueued with an explicit profile
+    overrides it.
     """
+    hardware = get_profile(profile)
     tally = {"completed": 0, "failed": 0}
     while True:
         experiment_id = claim_next(session_factory)
@@ -136,7 +157,9 @@ def run_worker(
                 return tally
             time.sleep(poll_interval)
             continue
-        outcome = run_claimed(session_factory, experiment_id)
+        outcome = run_claimed(
+            session_factory, experiment_id, profile=hardware.name
+        )
         print(f"[worker] experiment {experiment_id}: {outcome}", flush=True)
         if outcome in tally:
             tally[outcome] += 1
@@ -147,21 +170,25 @@ def run_worker(
 def run_workers_parallel(
     session_factory,
     *,
-    workers: int,
+    workers: int | None = None,
     once: bool = False,
     poll_interval: float = 1.0,
     max_jobs: int | None = None,
+    profile: str | None = None,
 ) -> dict:
-    """Run several claim loops concurrently in this process (S48).
+    """Run several claim loops concurrently in this process (S48/S49).
 
     Every loop claims through the same atomic conditional UPDATE, so the
-    queue is partitioned — no experiment is claimed twice. Threads give
-    the concurrency; separate worker *processes* give the CPU scale-out.
+    queue is partitioned — no experiment is claimed twice. The loop count
+    comes from the hardware profile unless stated outright; threads give
+    the concurrency, separate worker *processes* give the CPU scale-out.
     """
     from concurrent.futures import ThreadPoolExecutor
 
+    hardware = get_profile(profile)
+    loop_count = workers if workers is not None else hardware.workers
     combined = {"completed": 0, "failed": 0}
-    with ThreadPoolExecutor(max_workers=workers) as pool:
+    with ThreadPoolExecutor(max_workers=loop_count) as pool:
         tallies = list(
             pool.map(
                 lambda _: run_worker(
@@ -169,8 +196,9 @@ def run_workers_parallel(
                     once=once,
                     poll_interval=poll_interval,
                     max_jobs=max_jobs,
+                    profile=hardware.name,
                 ),
-                range(workers),
+                range(loop_count),
             )
         )
     for tally in tallies:
@@ -190,22 +218,30 @@ def main() -> None:
     parser.add_argument(
         "--workers",
         type=int,
-        default=1,
-        help="concurrent claim loops in this process (S48); scale out further "
-        "by starting more worker processes",
+        default=None,
+        help="concurrent claim loops in this process; defaults to the "
+        "hardware profile's count (scale out further by starting more "
+        "worker processes)",
+    )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        choices=["tiny", "desktop", "gpu", "cloud"],
+        help="the hardware this worker executes for (S49)",
     )
     args = parser.parse_args()
 
     from app.persistence.database import SessionLocal
 
     print("[worker] polling for queued experiments", flush=True)
-    if args.workers > 1:
+    if args.workers is not None and args.workers > 1:
         tally = run_workers_parallel(
             SessionLocal,
             workers=args.workers,
             once=args.once,
             poll_interval=args.poll_interval,
             max_jobs=args.max_jobs,
+            profile=args.profile,
         )
     else:
         tally = run_worker(
@@ -213,6 +249,7 @@ def main() -> None:
             once=args.once,
             poll_interval=args.poll_interval,
             max_jobs=args.max_jobs,
+            profile=args.profile,
         )
     print(f"[worker] done: {tally}", flush=True)
 

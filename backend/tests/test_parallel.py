@@ -127,10 +127,13 @@ def test_worker_processes_partition_one_queue(tmp_path):
 
 def _canonical(study: dict) -> dict:
     """A study minus the keys that legitimately differ between two runs
-    of the same params: its row id and any caller-assigned name."""
+    of the same params: its row id, any caller-assigned name, and the
+    S49 runtime (wall-clock facts — duration and throughput are supposed
+    to vary; the outcome metrics are not)."""
     body = json.loads(json.dumps(study))
     body.pop("experiment_id", None)
     body.pop("name", None)
+    body.pop("runtime", None)
     for run in body.get("runs", []):
         run.pop("experiment_id", None)
     return body

@@ -96,7 +96,11 @@ def with_live_choices(param: dict) -> dict:
 
 
 def run_multi_world(
-    session_factory, params: dict, name: str | None, experiment_id: int | None = None
+    session_factory,
+    params: dict,
+    name: str | None,
+    experiment_id: int | None = None,
+    profile: str | None = None,
 ) -> dict:
     from app.experiments.multi_world import run_study
 
@@ -111,6 +115,7 @@ def run_multi_world(
         name=name,
         experiment_id=experiment_id,
         max_actions=optional_int(params.get("max_actions")),
+        profile=profile,
     )
 
 
@@ -128,8 +133,14 @@ def _rename_experiment(session_factory, experiment_id: int, name: str | None) ->
 
 
 def run_lineage_study(
-    session_factory, params: dict, name: str | None, experiment_id: int | None = None
+    session_factory,
+    params: dict,
+    name: str | None,
+    experiment_id: int | None = None,
+    profile: str | None = None,
 ) -> dict:
+    # S49: the profile is accepted for a uniform worker surface but not
+    # yet applied — lineage runs pace themselves per generation.
     from app.experiments.lineage_study import run_study
 
     study = run_study(
@@ -149,7 +160,11 @@ def run_lineage_study(
 
 
 def run_observer_study(
-    session_factory, params: dict, name: str | None, experiment_id: int | None = None
+    session_factory,
+    params: dict,
+    name: str | None,
+    experiment_id: int | None = None,
+    profile: str | None = None,
 ) -> dict:
     from app.experiments.observer import ParticipantPlan, run_study
 
@@ -164,6 +179,7 @@ def run_observer_study(
         name=name,
         experiment_id=experiment_id,
         max_actions=optional_int(params.get("max_actions")),
+        profile=profile,
     )
 
 

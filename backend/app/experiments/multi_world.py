@@ -27,12 +27,14 @@ from __future__ import annotations
 import argparse
 import json
 import statistics as stats
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
 from app.persistence.models import ExperimentModel
+from app.profiles import get_profile
 from app.simulation.agent import Agent
 from app.simulation.budget import Budget
 from app.simulation.engine import Engine
@@ -298,6 +300,7 @@ def run_study(
     name: str | None = None,
     experiment_id: int | None = None,
     max_actions: int | None = None,
+    profile: str | None = None,
 ) -> dict:
     """Run the same experiment in ``worlds`` worlds and compare them.
 
@@ -305,6 +308,8 @@ def run_study(
     seed (the roadmap's experiment: the same scenario across independent
     universes). ``vary="template"`` holds the seed fixed and walks the
     world's recipe instead — ``templates`` names one per world.
+    ``profile`` names the hardware the study runs on: it sizes the world
+    pool and is recorded in the result's runtime, never the outcome.
     """
     if worlds < 1:
         raise ValueError(f"a study needs at least one world, got {worlds}")
@@ -322,6 +327,7 @@ def run_study(
     else:
         selected = [resolve_template(template)] * worlds
 
+    hardware = get_profile(profile)
     label = name or f"lab-{seed}"
     config = {
         "vary": vary,
@@ -329,6 +335,7 @@ def run_study(
         "templates": templates if vary == "template" else None,
         "worlds": worlds,
         "ticks": ticks,
+        "profile": hardware.name,
         "measures": list(MEASURES),
     }
     if experiment_id is None:
@@ -355,7 +362,9 @@ def run_study(
 
     # S48: the worlds run concurrently. Each is a self-contained Engine
     # with its own ledger, so threads share nothing; results are keyed by
-    # index, so the study reads exactly as the serial one did.
+    # index, so the study reads exactly as the serial one did. S49: the
+    # pool is sized by the hardware profile, and the run's wall-clock
+    # facts are recorded next to the outcome metrics.
     def _one_world(index: int) -> dict:
         chosen = selected[index]
         world_seed = str(seed) if vary == "template" else f"{seed}-{index}"
@@ -364,8 +373,19 @@ def run_study(
         report["experiment_id"] = experiment_id
         return report
 
-    with ThreadPoolExecutor(max_workers=min(worlds, 8)) as pool:
+    max_workers = min(worlds, hardware.max_parallel_worlds)
+    span = ticks if ticks is not None else selected[0].ticks
+    started = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
         run_records = list(pool.map(_one_world, range(worlds)))
+    elapsed = time.perf_counter() - started
+    runtime = {
+        "profile": hardware.name,
+        "workers": max_workers,
+        "duration_s": round(elapsed, 3),
+        "ticks_total": worlds * span,
+        "tps": round(worlds * span / elapsed, 1) if elapsed > 0 else None,
+    }
 
     comparison = cross_world_analytics(run_records)
     study = {
@@ -381,6 +401,7 @@ def run_study(
         "runs": run_records,
         "comparison": comparison,
         "measures": list(MEASURES),
+        "runtime": runtime,
     }
 
     with session_factory() as session:

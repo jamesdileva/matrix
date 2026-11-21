@@ -15,12 +15,15 @@ statistical claim: same seed, same template, same span, one difference.
 from __future__ import annotations
 
 import argparse
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable
 
 from app.host import PARTICIPANT_ENTITY_ID
 from app.persistence.models import ExperimentModel
+from app.profiles import get_profile
 from app.simulation.agent import Agent
 from app.simulation.budget import Budget
 from app.simulation.engine import Engine
@@ -438,6 +441,7 @@ def run_study(
     name: str | None = None,
     experiment_id: int | None = None,
     max_actions: int | None = None,
+    profile: str | None = None,
 ) -> dict:
     """Run the same world observed, then with a participant, and compare."""
     chosen = resolve_template(template)
@@ -446,10 +450,12 @@ def run_study(
     span = chosen.ticks if ticks is None else ticks
     plan = participant_plan or ParticipantPlan()
     label = name or f"observer-{seed}"
+    hardware = get_profile(profile)
     config = {
         "template": template,
         "ticks": ticks,
         "max_actions": max_actions,
+        "profile": hardware.name,
         "measures": list(MEASURES),
         "dimensions": {key: list(value) for key, value in DIMENSIONS.items()},
         "participant_plan": plan.to_dict(),
@@ -477,10 +483,31 @@ def run_study(
             row.name = label
             session.commit()
 
-    observer = run_world(chosen, seed, ticks=span, max_actions=max_actions)
-    participant = run_world(
-        chosen, seed, ticks=span, participant=True, plan=plan, max_actions=max_actions
-    )
+    # S49: the two sides are independent worlds until compare_runs — run
+    # them concurrently, sized by the hardware profile, with the run's
+    # wall-clock facts recorded next to the outcome metrics.
+    def _one_side(participate: bool) -> dict:
+        return run_world(
+            chosen,
+            seed,
+            ticks=span,
+            participant=participate,
+            plan=plan if participate else None,
+            max_actions=max_actions,
+        )
+
+    max_workers = min(2, hardware.max_parallel_worlds)
+    started = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        observer, participant = list(pool.map(_one_side, [False, True]))
+    elapsed = time.perf_counter() - started
+    runtime = {
+        "profile": hardware.name,
+        "workers": max_workers,
+        "duration_s": round(elapsed, 3),
+        "ticks_total": 2 * span,
+        "tps": round(2 * span / elapsed, 1) if elapsed > 0 else None,
+    }
     comparison = compare_runs(observer, participant)
     study = {
         "experiment_id": experiment_id,
@@ -496,6 +523,7 @@ def run_study(
         "observer": observer,
         "participant": participant,
         "comparison": comparison,
+        "runtime": runtime,
     }
 
     with session_factory() as session:

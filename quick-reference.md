@@ -654,8 +654,10 @@ cd backend && .venv/Scripts/python -m app.experiments.observer --template void -
 # list studies (newest first; optional ?scenario=)
 curl -s localhost:8000/api/experiments
 # by default POST enqueues (202) for the worker process; "wait": true runs inline (201).
-# drain the queue with the worker (its own process; drops --once to poll forever):
-cd backend && .venv/Scripts/python -m app.worker --once
+# a "profile" names the hardware: tiny | desktop | gpu | cloud (S49) — same config,
+# identical outcomes, comparable runtimes; compare two runs:
+cd backend && .venv/Scripts/python -m app.worker --once --profile cloud
+curl -s localhost:8000/api/experiments/132/compare/133
 # inspect one, with its stored result
 curl -s localhost:8000/api/experiments/1
 # export the whole study as a downloadable JSON
